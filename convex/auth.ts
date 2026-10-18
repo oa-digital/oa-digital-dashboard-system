@@ -7,13 +7,18 @@ import authConfig from "./auth.config";
 import { hashPassword, verifyPassword } from "./password";
 
 const siteUrl = process.env.SITE_URL!;
+// Other origins allowed to sign in (e.g. a preview Worker), comma-separated.
+const extraOrigins = (process.env.TRUSTED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
 export const authComponent = createClient<DataModel>(components.betterAuth);
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   return betterAuth({
     baseURL: siteUrl,
-    trustedOrigins: [siteUrl],
+    trustedOrigins: [siteUrl, ...extraOrigins],
     database: authComponent.adapter(ctx),
     emailAndPassword: {
       enabled: true,

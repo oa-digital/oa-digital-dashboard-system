@@ -23,9 +23,12 @@ import { EmptyState, PageSkeleton } from '@/components/ui/states'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { RequestStatusBadge, StepsTimeline } from '@/components/work/request-status'
 import { ExpenseClaimDialog } from '@/components/work/expense-claim-dialog'
+import { PayClaimDialog } from '@/components/work/pay-claim-dialog'
 import { AttachmentList } from '@/components/work/attachments'
+import { Pager } from '@/components/ui/pagination'
+import { TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 import { useRole } from '@/lib/role-context'
-import { cn, errorMessage, formatCurrency, formatDate } from '@/lib/utils'
+import { cn, formatCurrency, formatDate } from '@/lib/utils'
 
 type Claim = NonNullable<FunctionReturnType<typeof api.expenses.mine>>['claims'][number]
 type Summary = NonNullable<FunctionReturnType<typeof api.expenses.mine>>['summary']
@@ -145,13 +148,12 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
   const [open, setOpen] = useState<string | null>(null)
   const [withdrawing, setWithdrawing] = useState<Claim | null>(null)
   const [paying, setPaying] = useState<Claim | null>(null)
-  const [payError, setPayError] = useState('')
   const withdraw = useMutation(api.expenses.withdraw)
-  const markPaid = useMutation(api.expenses.markPaid)
 
   const statuses = ['all', 'pending', 'approved', 'paid', 'declined', 'withdrawn'] as const
   const label = (s: StatusFilter) => (s === 'all' ? 'All' : s === 'approved' ? 'To pay' : s[0].toUpperCase() + s.slice(1))
   const shown = filter === 'all' ? claims : claims.filter((c) => c.status === filter)
+  const pages = usePagination(shown, TABLE_PAGE_SIZE, filter)
 
   const details = (c: Claim) => (
     <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -180,10 +182,7 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
           )}
           {canPay && c.status === 'approved' && (
             <button
-              onClick={() => {
-                setPayError('')
-                setPaying(c)
-              }}
+              onClick={() => setPaying(c)}
               className="btn btn-primary btn-sm"
             >
               <CheckCircleIcon size={14} weight="bold" />
@@ -195,7 +194,17 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
       <div>
         <p className="eyebrow mb-2">Approval</p>
         <StepsTimeline steps={c.steps} autoApproved requestStatus={c.status} />
-        {c.paidBy && <p className="mt-3 text-[12.5px] text-fg-3">Paid by {c.paidBy}</p>}
+        {c.paidBy && (
+          <p className="mt-3 text-[12.5px] text-fg-3">
+            Paid by {c.paidBy}
+            {c.paymentReference && <> · Ref {c.paymentReference}</>}
+          </p>
+        )}
+        {c.paymentProof.length > 0 && (
+          <div className="mt-3">
+            <AttachmentList attachments={c.paymentProof} label="Proof of payment" />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -217,7 +226,7 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
         <>
           {/* Phones: stacked cards */}
           <ul className="divide-y divide-line border-t border-line md:hidden">
-            {shown.map((c) => (
+            {pages.pageItems.map((c) => (
               <li key={c.id}>
                 <button type="button" onClick={() => setOpen(open === c.id ? null : c.id)} className="trow flex w-full items-start gap-3 px-5 py-3.5 text-left" aria-expanded={open === c.id}>
                   {showEmployee && <Avatar name={c.employee} size={34} />}
@@ -258,7 +267,7 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
                 </tr>
               </thead>
               <tbody className="divide-y divide-line border-t border-line">
-                {shown.map((c) => (
+                {pages.pageItems.map((c) => (
                   <Fragment key={c.id}>
                     <tr className="trow cursor-pointer" onClick={() => setOpen(open === c.id ? null : c.id)}>
                       <td className="whitespace-nowrap px-6 py-3.5 text-fg-2">{formatDate(new Date(c.createdAt).toISOString())}</td>
@@ -296,6 +305,7 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
               </tbody>
             </table>
           </div>
+          <Pager pagination={pages} className="border-t border-line px-5 py-3 md:px-6" />
         </>
       )}
 
@@ -310,29 +320,7 @@ function ClaimsCard({ claims, showEmployee, canPay }: { claims: Claim[]; showEmp
           setWithdrawing(null)
         }}
       />
-      <ConfirmDialog
-        open={Boolean(paying)}
-        tone="primary"
-        icon={WalletIcon}
-        title="Mark as paid?"
-        message={
-          payError ||
-          (paying
-            ? `Confirm ${paying.employee} has been paid ${formatCurrency(paying.total, paying.currency)} for "${paying.title}". This also records it as an expense in Finance.`
-            : '')
-        }
-        confirmLabel="Mark paid"
-        onClose={() => setPaying(null)}
-        onConfirm={async () => {
-          if (!paying) return
-          try {
-            await markPaid({ id: paying.id })
-            setPaying(null)
-          } catch (err) {
-            setPayError(errorMessage(err))
-          }
-        }}
-      />
+      <PayClaimDialog claim={paying} onClose={() => setPaying(null)} />
     </Card>
   )
 }

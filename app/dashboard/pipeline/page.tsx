@@ -13,6 +13,9 @@ import { EmptyState, Skeleton } from '@/components/ui/states'
 import { PHASE_META } from '@/lib/types'
 import { AddDealModal, type DealDraft } from '@/components/ui/add-deal-modal'
 import { ConfirmDialog } from '@/components/ui/modal'
+import { DealPaymentsDialog } from '@/components/ui/deal-payments-dialog'
+import { Pager } from '@/components/ui/pagination'
+import { CARD_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 
 const ALL_PHASES = ['all', 'lead', 'proposal', 'await', 'meet', 'action', 'progress', 'done', 'hold'] as const
 type FilterPhase = typeof ALL_PHASES[number]
@@ -31,7 +34,6 @@ function fromDraft(form: DealDraft) {
     currency: form.currency,
     phase: form.phase,
     ownerId: (form.ownerId || undefined) as Id<'employees'> | undefined,
-    paid: Number(form.paid) || 0,
     nextAction: form.nextAction.trim(),
     notes: form.notes.trim(),
   }
@@ -46,6 +48,7 @@ export default function PipelinePage() {
   const [dealModalOpen, setDealModalOpen] = useState(false)
   const [editing, setEditing] = useState<Deal | null>(null)
   const [removing, setRemoving] = useState<Deal | null>(null)
+  const [paying, setPaying] = useState<Deal | null>(null)
   const dealsData = useQuery(api.deals.list)
   const directory = useQuery(api.people.directory)
   const createDeal = useMutation(api.deals.create)
@@ -77,6 +80,7 @@ export default function PipelinePage() {
   }
 
   const filtered = filter === 'all' ? deals : deals.filter((d) => d.phase === filter)
+  const pagination = usePagination(filtered, CARD_PAGE_SIZE, filter)
   const totalValue = filtered.reduce((sum, d) => sum + n(d.value), 0)
   const totalPaid  = filtered.reduce((sum, d) => sum + n(d.paid), 0)
   const outstanding = totalValue - totalPaid
@@ -169,15 +173,19 @@ export default function PipelinePage() {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {filtered.map((deal) => (
-            <PipelineCard
-              key={deal.id}
-              deal={deal}
-              onEdit={() => openEdit(deal)}
-              onDelete={() => setRemoving(deal)}
-            />
-          ))}
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {pagination.pageItems.map((deal) => (
+              <PipelineCard
+                key={deal.id}
+                deal={deal}
+                onEdit={() => openEdit(deal)}
+                onDelete={() => setRemoving(deal)}
+                onPayments={() => setPaying(deal)}
+              />
+            ))}
+          </div>
+          <Pager pagination={pagination} />
         </div>
       )}
 
@@ -192,7 +200,6 @@ export default function PipelinePage() {
           currency: editing.currency,
           phase: editing.phase,
           ownerId: editing.ownerId ?? '',
-          paid: String(n(editing.paid)),
           nextAction: editing.nextAction,
           notes: editing.notes,
         } : null}
@@ -200,10 +207,12 @@ export default function PipelinePage() {
         onSave={handleSave}
       />
 
+      <DealPaymentsDialog deal={paying ? (deals.find((d) => d.id === paying.id) ?? null) : null} onClose={() => setPaying(null)} />
+
       <ConfirmDialog
         open={Boolean(removing)}
         title="Remove deal?"
-        message={removing ? `This will permanently remove “${removing.client} — ${removing.title}” from the pipeline.` : ''}
+        message={removing ? `This will permanently remove “${removing.client} — ${removing.title}” from the pipeline. Payments already recorded stay in Finance.` : ''}
         confirmLabel="Remove deal"
         onClose={() => setRemoving(null)}
         onConfirm={handleRemove}

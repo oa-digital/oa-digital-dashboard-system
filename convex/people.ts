@@ -19,6 +19,29 @@ async function loginStatus(ctx: QueryCtx, e: Doc<"employees">): Promise<LoginSta
   return open.length ? "expired" : "none";
 }
 
+const CLOSED_PROJECT = new Set(["completed", "cancelled"]);
+
+/** Who works on which projects, and the open tasks on projects that are still going. */
+async function workLoad(ctx: QueryCtx) {
+  const [projects, members, tasks] = await Promise.all([
+    ctx.db.query("projects").collect(),
+    ctx.db.query("projectMembers").collect(),
+    ctx.db.query("tasks").collect(),
+  ]);
+  const projectById = new Map(projects.map((p) => [p._id, p]));
+  const projectsOf = (id: Id<"employees">) => {
+    const ids = new Set(members.filter((m) => m.employeeId === id).map((m) => m.projectId));
+    for (const p of projects) if (p.leadId === id) ids.add(p._id);
+    return [...ids].map((pid) => projectById.get(pid)).filter((p): p is Doc<"projects"> => !!p);
+  };
+  const openTasksOf = (id: Id<"employees">) =>
+    tasks.filter((t) => {
+      const p = projectById.get(t.projectId);
+      return t.assigneeId === id && t.status !== "done" && !!p && !CLOSED_PROJECT.has(p.status);
+    });
+  return { projectsOf, openTasksOf, tasks, projectById };
+}
+
 /** Everyone in the company, for the directory. Deal stats only for pipeline viewers. */
 export const directory = query({
   args: {},
@@ -27,12 +50,14 @@ export const directory = query({
     if (!viewer) return null;
     const canManage = can(viewer.accessRole, "people.manage");
     const canPipeline = can(viewer.accessRole, "pipeline.view");
+    const canSeeWork = can(viewer.accessRole, "projects.manageAll");
 
     const [employees, departments, deals] = await Promise.all([
       ctx.db.query("employees").withIndex("by_name").collect(),
       ctx.db.query("departments").withIndex("by_name").collect(),
       canPipeline ? ctx.db.query("deals").collect() : Promise.resolve([]),
     ]);
+    const work = canSeeWork ? await workLoad(ctx) : null;
     const deptName = new Map(departments.map((d) => [d._id, d.name]));
     const byId = new Map(employees.map((e) => [e._id, e]));
 
@@ -61,6 +86,12 @@ export const directory = query({
                   collected: owned.filter((d) => d.currency === "GHS").reduce((s, d) => s + d.paid, 0),
                 }
               : null,
+            workStats: work
+              ? {
+                  activeProjects: work.projectsOf(e._id).filter((p) => p.status === "active").length,
+                  activeTasks: work.openTasksOf(e._id).length,
+                }
+              : null,
           };
         }),
     );
@@ -75,6 +106,58 @@ export const directory = query({
       canManage,
       canSetAccess: can(viewer.accessRole, "people.setAccess"),
     };
+  },
+});
+
+/** One person's active projects and open tasks. For project managers, or the person themself. */
+export const profile = query({
+  args: { id: v.id("employees") },
+  handler: async (ctx, { id }) => {
+    const viewer = await getViewer(ctx);
+    if (!viewer || (id !== viewer._id && !can(viewer.accessRole, "projects.manageAll"))) return null;
+    const e = await ctx.db.get(id);
+    if (!e) return null;
+    const work = await workLoad(ctx);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const projects = work
+      .projectsOf(id)
+      .filter((p) => p.status === "active")
+      .map((p) => {
+        const tasks = work.tasks.filter((t) => t.projectId === p._id);
+        const done = tasks.filter((t) => t.status === "done").length;
+        return {
+          id: p._id,
+          name: p.name,
+          key: p.key,
+          client: p.client,
+          isLead: p.leadId === id,
+          dueDate: p.dueDate ?? null,
+          overdue: !!p.dueDate && p.dueDate < today,
+          progress: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+        };
+      })
+      .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
+
+    const tasks = work
+      .openTasksOf(id)
+      .map((t) => {
+        const p = work.projectById.get(t.projectId)!;
+        return {
+          id: t._id,
+          projectId: t.projectId,
+          project: p.name,
+          key: `${p.key}-${t.number}`,
+          title: t.title,
+          status: t.status,
+          priority: t.priority,
+          dueDate: t.dueDate ?? null,
+          overdue: !!t.dueDate && t.dueDate < today,
+        };
+      })
+      .sort((a, b) => (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999"));
+
+    return { id: e._id, name: e.name, jobTitle: e.jobTitle, email: e.email, projects, tasks };
   },
 });
 

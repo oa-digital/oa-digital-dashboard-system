@@ -29,6 +29,8 @@ import { EmptyState, PageSkeleton } from '@/components/ui/states'
 import { ConfirmDialog } from '@/components/ui/modal'
 import { RequestStatusBadge, StepsTimeline } from '@/components/work/request-status'
 import { LeaveRequestDialog } from '@/components/work/leave-request-dialog'
+import { Pager } from '@/components/ui/pagination'
+import { TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 import { useRole } from '@/lib/role-context'
 import { cn, errorMessage, formatRelativeDate } from '@/lib/utils'
 
@@ -160,7 +162,7 @@ function MyRequests({ requests, onNew }: { requests: LeaveRequest[]; onNew: () =
           }))}
         />
       </div>
-      <RequestTable requests={shown} showEmployee={false} onWithdraw={setWithdrawing} />
+      <RequestTable key={filter} requests={shown} showEmployee={false} onWithdraw={setWithdrawing} />
       <ConfirmDialog
         open={Boolean(withdrawing)}
         title="Withdraw this request?"
@@ -186,6 +188,7 @@ function RequestTable({
   onWithdraw?: (r: LeaveRequest) => void
 }) {
   const [open, setOpen] = useState<string | null>(null)
+  const pages = usePagination(requests, TABLE_PAGE_SIZE)
   if (requests.length === 0) return <p className="border-t border-line px-6 py-10 text-center text-[13px] text-fg-3">Nothing here.</p>
 
   const details = (r: LeaveRequest) => (
@@ -210,7 +213,7 @@ function RequestTable({
     <>
       {/* Phones: stacked cards */}
       <ul className="divide-y divide-line border-t border-line md:hidden">
-        {requests.map((r) => (
+        {pages.pageItems.map((r) => (
           <li key={r.id}>
             <button type="button" onClick={() => setOpen(open === r.id ? null : r.id)} className="trow flex w-full items-start gap-3 px-5 py-3.5 text-left" aria-expanded={open === r.id}>
               {showEmployee && <Avatar name={r.employee} size={34} />}
@@ -250,7 +253,7 @@ function RequestTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-line border-t border-line">
-            {requests.map((r) => (
+            {pages.pageItems.map((r) => (
               <Fragment key={r.id}>
                 <tr className="trow cursor-pointer" onClick={() => setOpen(open === r.id ? null : r.id)}>
                   {showEmployee && (
@@ -283,6 +286,7 @@ function RequestTable({
           </tbody>
         </table>
       </div>
+      <Pager pagination={pages} className="border-t border-line px-5 py-3 md:px-6" />
     </>
   )
 }
@@ -291,6 +295,7 @@ function RequestTable({
 
 function WhosAway() {
   const away = useQuery(api.leave.whosAway)
+  const pages = usePagination(away ?? [], TABLE_PAGE_SIZE)
   if (!away) return <PageSkeleton rows={1} />
   if (away.length === 0) {
     return (
@@ -302,7 +307,7 @@ function WhosAway() {
   return (
     <Card flush>
       <ul className="divide-y divide-line">
-        {away.map((a) => (
+        {pages.pageItems.map((a) => (
           <li key={a.id} className="flex items-center gap-3.5 px-5 py-3.5 md:px-6">
             <Avatar name={a.name} size={40} />
             <div className="min-w-0 flex-1">
@@ -317,6 +322,7 @@ function WhosAway() {
           </li>
         ))}
       </ul>
+      <Pager pagination={pages} className="border-t border-line px-5 py-3 md:px-6" />
     </Card>
   )
 }
@@ -348,7 +354,7 @@ function Register() {
           }))}
         />
       </div>
-      <RequestTable requests={shown} showEmployee />
+      <RequestTable key={filter} requests={shown} showEmployee />
     </Card>
   )
 }
@@ -361,6 +367,7 @@ function Allowances() {
   const saveType = useMutation(api.leave.saveType)
   const [error, setError] = useState('')
   const [newType, setNewType] = useState('')
+  const pages = usePagination(data?.allowances ?? [], TABLE_PAGE_SIZE)
 
   if (data === undefined) return <PageSkeleton rows={1} />
   if (data === null) return null
@@ -396,7 +403,7 @@ function Allowances() {
               </tr>
             </thead>
             <tbody className="divide-y divide-line border-t border-line">
-              {data.allowances.map((a) => (
+              {pages.pageItems.map((a) => (
                 <tr key={a.employeeId} className="trow">
                   <td className="px-6 py-3">
                     <p className="font-semibold text-fg">{a.name}</p>
@@ -436,6 +443,7 @@ function Allowances() {
             </tbody>
           </table>
         </div>
+        <Pager pagination={pages} className="border-t border-line px-5 py-3 md:px-6" />
       </Card>
 
       <Card>

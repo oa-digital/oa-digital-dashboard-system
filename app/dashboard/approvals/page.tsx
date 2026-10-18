@@ -13,6 +13,8 @@ import { Modal } from '@/components/ui/modal'
 import { Alert, Field, Textarea } from '@/components/ui/field'
 import { EmptyState, PageSkeleton } from '@/components/ui/states'
 import { AttachmentList } from '@/components/work/attachments'
+import { Pager } from '@/components/ui/pagination'
+import { CARD_PAGE_SIZE, TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 import { cn, errorMessage, formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
 import type { Currency } from '@/lib/types'
 
@@ -24,6 +26,8 @@ export default function ApprovalsPage() {
   const inbox = useQuery(api.approvals.inbox)
   const [tab, setTab] = useState<'waiting' | 'others' | 'recent'>('waiting')
   const [declining, setDeclining] = useState<Item | null>(null)
+  const list = (tab === 'others' ? inbox?.others : inbox?.waiting) ?? []
+  const pages = usePagination(list, CARD_PAGE_SIZE, tab)
 
   if (!inbox) {
     return (
@@ -39,7 +43,6 @@ export default function ApprovalsPage() {
     ...(inbox.others.length ? [{ value: 'others' as const, label: 'Waiting on others', count: inbox.others.length }] : []),
     { value: 'recent' as const, label: 'Recently decided', count: inbox.recent.length },
   ]
-  const list = tab === 'others' ? inbox.others : inbox.waiting
 
   return (
     <div className="space-y-6">
@@ -58,10 +61,13 @@ export default function ApprovalsPage() {
           <EmptyState icon={CheckSquareOffsetIcon} title="Your queue is clear" description="Leave requests and expense claims that need your decision show up here." />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {list.map((item) => (
-            <ApprovalCard key={`${item.kind}-${item.id}`} item={item} onDecline={() => setDeclining(item)} />
-          ))}
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {pages.pageItems.map((item) => (
+              <ApprovalCard key={`${item.kind}-${item.id}`} item={item} onDecline={() => setDeclining(item)} />
+            ))}
+          </div>
+          <Pager pagination={pages} />
         </div>
       )}
 
@@ -211,6 +217,7 @@ function DeclineForm({ item, onClose }: { item: Item; onClose: () => void }) {
 }
 
 function RecentList({ items }: { items: Recent[] }) {
+  const pages = usePagination(items, TABLE_PAGE_SIZE)
   if (items.length === 0) {
     return (
       <div className="card">
@@ -221,7 +228,7 @@ function RecentList({ items }: { items: Recent[] }) {
   return (
     <div className="card overflow-hidden">
       <ul className="divide-y divide-line">
-        {items.map((i) => (
+        {pages.pageItems.map((i) => (
           <li key={`${i.kind}-${i.id}`} className="flex items-center gap-3.5 px-5 py-3.5 md:px-6">
             <KindIcon kind={i.kind} />
             <div className="min-w-0 flex-1">
@@ -240,6 +247,7 @@ function RecentList({ items }: { items: Recent[] }) {
           </li>
         ))}
       </ul>
+      <Pager pagination={pages} className="border-t border-line px-5 py-3 md:px-6" />
     </div>
   )
 }

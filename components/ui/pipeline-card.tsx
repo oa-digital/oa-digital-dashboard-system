@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRightIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import { ArrowRightIcon, PencilSimpleIcon, TrashIcon, WalletIcon } from "@phosphor-icons/react";
 import { cn, formatCurrency, formatRelativeDate } from "@/lib/utils";
 import type { Deal } from "@/lib/types";
 import { Avatar } from "@/components/ui/avatar";
@@ -11,10 +11,11 @@ interface PipelineCardProps {
   deal: Deal;
   onEdit?: () => void;
   onDelete?: () => void;
+  onPayments?: () => void;
   className?: string;
 }
 
-export function PipelineCard({ deal, onEdit, onDelete, className }: PipelineCardProps) {
+export function PipelineCard({ deal, onEdit, onDelete, onPayments, className }: PipelineCardProps) {
   const outstanding = deal.value - deal.paid;
   const progress = deal.value > 0 ? (deal.paid / deal.value) * 100 : 0;
 
@@ -67,12 +68,17 @@ export function PipelineCard({ deal, onEdit, onDelete, className }: PipelineCard
 
       <div className="flex-1" />
 
-      {(onEdit || onDelete) && (
+      {(onEdit || onDelete || onPayments) && (
         <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
           <span className="text-[11.5px] text-fg-3">
             {deal.updatedAt ? `Updated ${formatRelativeDate(deal.updatedAt).toLowerCase()}` : ""}
           </span>
           <div className="flex gap-1">
+            {onPayments && (
+              <button type="button" onClick={onPayments} className="icon-btn icon-btn-sm" aria-label={`Payments for ${deal.client}`} title="Record payment">
+                <WalletIcon size={17} />
+              </button>
+            )}
             {onEdit && (
               <button type="button" onClick={onEdit} className="icon-btn icon-btn-sm" aria-label={`Edit ${deal.client}`} title="Edit">
                 <PencilSimpleIcon size={17} />

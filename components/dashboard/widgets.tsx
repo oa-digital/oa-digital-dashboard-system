@@ -137,7 +137,18 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 /** One transaction line. `compact` folds the date into the subtitle for narrow cards. */
-export function TransactionRow({ tx, showType = false, compact = false }: { tx: TxLike; showType?: boolean; compact?: boolean }) {
+export function TransactionRow({
+  tx,
+  showType = false,
+  compact = false,
+  action,
+}: {
+  tx: TxLike;
+  showType?: boolean;
+  compact?: boolean;
+  /** Trailing control, e.g. a delete button. */
+  action?: ReactNode;
+}) {
   const isIn = tx.type === "income" || tx.type === "payment_received";
   const isTransfer = tx.type === "transfer";
   const IconCmp = isIn ? ArrowDownLeftIcon : isTransfer ? ArrowsLeftRightIcon : ArrowUpRightIcon;
@@ -182,6 +193,7 @@ export function TransactionRow({ tx, showType = false, compact = false }: { tx: 
         {isIn ? "+" : isTransfer ? "" : "−"}
         {formatCurrency(Number(tx.amount), tx.currency as Currency)}
       </p>
+      {action}
     </div>
   );
 }

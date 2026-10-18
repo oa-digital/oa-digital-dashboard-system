@@ -131,6 +131,8 @@ export default defineSchema({
     currentApproverId: v.optional(v.id("employees")),
     paidAt: v.optional(v.number()),
     paidBy: v.optional(v.id("employees")),
+    paymentProof: v.optional(v.array(v.object({ storageId: v.id("_storage"), name: v.string() }))), // invoice, transfer slip…
+    paymentReference: v.optional(v.string()),
     transactionId: v.optional(v.id("transactions")),
     createdAt: v.number(),
     decidedAt: v.optional(v.number()),
@@ -239,7 +241,8 @@ export default defineSchema({
     phase,
     assignee: v.string(), // display name, kept in sync with ownerId
     ownerId: v.optional(v.id("employees")),
-    paid: v.number(),
+    paid: v.number(), // paidOpening + linked payment transactions; kept in sync by deals.ts
+    paidOpening: v.optional(v.number()), // collected before payments were tracked as transactions
     nextAction: v.string(),
     notes: v.string(),
     createdAt: v.number(),
@@ -256,8 +259,10 @@ export default defineSchema({
     category: v.string(),
     date: v.string(), // YYYY-MM-DD
     orderId: v.optional(v.string()),
+    dealId: v.optional(v.id("deals")), // a client payment against this deal
   })
-    .index("by_date", ["date"]),
+    .index("by_date", ["date"])
+    .index("by_deal", ["dealId"]),
 
   contacts: defineTable({
     name: v.string(),

@@ -27,7 +27,10 @@ import { ConfirmDialog } from '@/components/ui/modal'
 import { PersonDialog, type PersonDraft } from '@/components/people/person-dialog'
 import { InviteDialog, type InviteTarget } from '@/components/people/invite-dialog'
 import { DepartmentsDialog } from '@/components/people/departments-dialog'
-import { errorMessage, formatCurrency } from '@/lib/utils'
+import { ProfileDialog, type ProfileTarget } from '@/components/people/profile-dialog'
+import { Pager } from '@/components/ui/pagination'
+import { usePagination } from '@/lib/use-pagination'
+import { cn, errorMessage, formatCurrency } from '@/lib/utils'
 
 type Directory = NonNullable<FunctionReturnType<typeof api.people.directory>>
 type Person = Directory['people'][number]
@@ -40,6 +43,7 @@ const LOGIN_BADGE: Record<NonNullable<Person['loginStatus']>, { label: string; t
 }
 
 const NO_DEPARTMENT = 'none'
+const PEOPLE_PAGE_SIZE = 6
 
 export default function PeoplePage() {
   const directory = useQuery(api.people.directory)
@@ -52,6 +56,7 @@ export default function PeoplePage() {
   const [removing, setRemoving] = useState<Person | null>(null)
   const [removeError, setRemoveError] = useState('')
   const [deptsOpen, setDeptsOpen] = useState(false)
+  const [viewing, setViewing] = useState<ProfileTarget | null>(null)
 
   const people = useMemo(() => directory?.people ?? [], [directory])
   const departments = useMemo(() => directory?.departments ?? [], [directory])
@@ -152,30 +157,30 @@ export default function PeoplePage() {
         </div>
       ) : (
         groups.map((g) => (
-          <section key={g.id} className="space-y-3">
-            <div className="flex items-baseline gap-2">
-              <h2 className="font-display text-[17px] font-semibold text-fg">{g.name}</h2>
-              <span className="text-[12px] text-fg-3">{g.people.length}</span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {g.people.map((p) => (
-                <PersonCard
-                  key={p.id}
-                  person={p}
-                  canManage={canManage}
-                  onEdit={() => openEdit(p)}
-                  onInvite={() => setInviting({ id: p.id, name: p.name, email: p.email, signedIn: p.loginStatus === 'active' })}
-                  onRemove={() => {
-                    setRemoveError('')
-                    setRemoving(p)
-                  }}
-                />
-              ))}
-            </div>
-          </section>
+          <DepartmentSection
+            key={g.id}
+            name={g.name}
+            people={g.people}
+            resetKey={`${filter}|${query}`}
+            renderCard={(p) => (
+              <PersonCard
+                key={p.id}
+                person={p}
+                canManage={canManage}
+                onOpen={p.workStats || p.isYou ? () => setViewing({ id: p.id, name: p.name, jobTitle: p.jobTitle }) : undefined}
+                onEdit={() => openEdit(p)}
+                onInvite={() => setInviting({ id: p.id, name: p.name, email: p.email, signedIn: p.loginStatus === 'active' })}
+                onRemove={() => {
+                  setRemoveError('')
+                  setRemoving(p)
+                }}
+              />
+            )}
+          />
         ))
       )}
 
+      <ProfileDialog target={viewing} onClose={() => setViewing(null)} />
       <PersonDialog
         open={personOpen}
         onClose={() => setPersonOpen(false)}
@@ -214,27 +219,70 @@ export default function PeoplePage() {
   )
 }
 
+function DepartmentSection({
+  name,
+  people,
+  resetKey,
+  renderCard,
+}: {
+  name: string
+  people: Person[]
+  resetKey: string
+  renderCard: (p: Person) => React.ReactNode
+}) {
+  const pagination = usePagination(people, PEOPLE_PAGE_SIZE, resetKey)
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline gap-2">
+        <h2 className="font-display text-[17px] font-semibold text-fg">{name}</h2>
+        <span className="text-[12px] text-fg-3">{people.length}</span>
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{pagination.pageItems.map(renderCard)}</div>
+      <Pager pagination={pagination} />
+    </section>
+  )
+}
+
 function PersonCard({
   person: p,
   canManage,
+  onOpen,
   onEdit,
   onInvite,
   onRemove,
 }: {
   person: Person
   canManage: boolean
+  onOpen?: () => void
   onEdit: () => void
   onInvite: () => void
   onRemove: () => void
 }) {
   const login = p.loginStatus ? LOGIN_BADGE[p.loginStatus] : null
   return (
-    <article className="card flex flex-col p-5 transition-shadow hover:shadow-pop">
+    <article
+      onClick={onOpen}
+      className={cn('card flex flex-col p-5 transition-shadow hover:shadow-pop', onOpen && 'cursor-pointer')}
+    >
       <div className="flex items-start gap-3.5">
         <Avatar name={p.name} size={52} />
         <div className="min-w-0 flex-1 pt-0.5">
           <p className="truncate font-display text-[17px] font-semibold leading-tight text-fg">
-            {p.name}
+            {onOpen ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpen()
+                }}
+                className="hover:text-brand focus-visible:text-brand"
+                aria-label={`View ${p.name}'s projects and tasks`}
+              >
+                {p.name}
+              </button>
+            ) : (
+              p.name
+            )}
             {p.isYou && <span className="ml-1.5 align-middle text-[11px] font-medium text-fg-3">(you)</span>}
           </p>
           <p className="mt-0.5 truncate text-[12.5px] text-fg-2">{p.jobTitle}</p>
@@ -247,36 +295,46 @@ function PersonCard({
           <TreeStructureIcon size={16} className="shrink-0 text-fg-3" />
           <span className="truncate">{p.lineManager ? `Reports to ${p.lineManager}` : 'Reports to no one'}</span>
         </div>
-        <a href={`mailto:${p.email}`} className="flex items-center gap-2.5 text-fg-2 hover:text-brand">
+        <a href={`mailto:${p.email}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2.5 text-fg-2 hover:text-brand">
           <EnvelopeSimpleIcon size={16} className="shrink-0 text-fg-3" />
           <span className="truncate">{p.email}</span>
         </a>
         {p.phone && (
-          <a href={`tel:${p.phone}`} className="flex items-center gap-2.5 text-fg-2 hover:text-brand">
+          <a href={`tel:${p.phone}`} onClick={(e) => e.stopPropagation()} className="flex items-center gap-2.5 text-fg-2 hover:text-brand">
             <PhoneIcon size={16} className="shrink-0 text-fg-3" />
             <span className="truncate">{p.phone}</span>
           </a>
         )}
       </dl>
 
-      {p.dealStats && (
-        <dl className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-muted p-3.5 text-[12px]">
-          <div>
-            <dt className="text-fg-3">Active deals</dt>
-            <dd className="tabular mt-0.5 font-display text-[18px] font-semibold text-fg">{p.dealStats.active}</dd>
-          </div>
-          <div>
-            <dt className="text-fg-3">Collected</dt>
-            <dd className="tabular mt-0.5 truncate font-display text-[18px] font-semibold text-fg">
-              {formatCurrency(p.dealStats.collected, 'GHS').replace('.00', '')}
-            </dd>
-          </div>
+      {(p.workStats || p.dealStats) && (
+        <dl className={cn('mt-4 grid gap-3 rounded-2xl bg-muted p-3.5 text-[12px]', p.workStats && p.dealStats ? 'grid-cols-3' : 'grid-cols-2')}>
+          {p.workStats && (
+            <>
+              <div>
+                <dt className="text-fg-3">Active projects</dt>
+                <dd className="tabular mt-0.5 font-display text-[18px] font-semibold text-fg">{p.workStats.activeProjects}</dd>
+              </div>
+              <div>
+                <dt className="text-fg-3">Open tasks</dt>
+                <dd className="tabular mt-0.5 font-display text-[18px] font-semibold text-fg">{p.workStats.activeTasks}</dd>
+              </div>
+            </>
+          )}
+          {p.dealStats && (
+            <div className="min-w-0">
+              <dt className="text-fg-3">Collected</dt>
+              <dd className="tabular mt-0.5 truncate font-display text-[18px] font-semibold text-fg">
+                {formatCurrency(p.dealStats.collected, 'GHS').replace('.00', '')}
+              </dd>
+            </div>
+          )}
         </dl>
       )}
 
       <div className="flex-1" />
       {canManage && (
-        <div className="mt-4 flex items-center justify-between border-t border-line pt-3">
+        <div className="mt-4 flex items-center justify-between border-t border-line pt-3" onClick={(e) => e.stopPropagation()}>
           {login ? (
             <Badge tone={login.tone} dot>
               {login.label}

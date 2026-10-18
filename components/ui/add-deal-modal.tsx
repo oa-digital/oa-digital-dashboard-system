@@ -15,7 +15,6 @@ export interface DealDraft {
   phase: PipelinePhase;
   /** Employee id of the deal owner, or "" for nobody. */
   ownerId: string;
-  paid: string;
   nextAction: string;
   notes: string;
 }
@@ -29,7 +28,6 @@ const empty: DealDraft = {
   currency: "GHS",
   phase: "lead",
   ownerId: "",
-  paid: "0",
   nextAction: "",
   notes: "",
 };
@@ -51,7 +49,7 @@ export function AddDealModal({ open, onClose, onSave, initial, people = [] }: De
       onClose={onClose}
       title={editing ? "Edit deal" : "New deal"}
       icon={HandshakeIcon}
-      description={editing ? "Update the deal details and payment status." : "Track a new opportunity in the pipeline."}
+      description={editing ? "Update the deal details. Record payments from the deal card." : "Track a new opportunity in the pipeline."}
       width="32rem"
     >
       {/* Remounts per opened record, so the form state starts from props without an effect. */}
@@ -80,7 +78,6 @@ function DealForm({
           currency: initial.currency,
           phase: initial.phase,
           ownerId: initial.ownerId,
-          paid: String(initial.paid ?? "0"),
           nextAction: initial.nextAction,
           notes: initial.notes,
         }
@@ -143,16 +140,6 @@ function DealForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Paid">
-          <Input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="0.00"
-            value={form.paid}
-            onChange={(e) => set("paid", e.target.value)}
-          />
-        </Field>
         <Field label="Phase">
           <Select
             required
@@ -164,9 +151,6 @@ function DealForm({
             ))}
           </Select>
         </Field>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Owner">
           <Select value={form.ownerId} onChange={(e) => set("ownerId", e.target.value)}>
             <option value="">Nobody yet</option>
@@ -175,14 +159,15 @@ function DealForm({
             ))}
           </Select>
         </Field>
-        <Field label="Next Action">
-          <Input
-            placeholder="e.g. Send proposal"
-            value={form.nextAction}
-            onChange={(e) => set("nextAction", e.target.value)}
-          />
-        </Field>
       </div>
+
+      <Field label="Next Action">
+        <Input
+          placeholder="e.g. Send proposal"
+          value={form.nextAction}
+          onChange={(e) => set("nextAction", e.target.value)}
+        />
+      </Field>
 
       <Field label="Notes">
         <Textarea

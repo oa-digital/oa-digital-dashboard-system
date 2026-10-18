@@ -1,7 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
-import type { Doc } from "./_generated/dataModel";
-import { getViewer, requirePermission, requireViewer } from "./lib";
+import type { Doc, Id } from "./_generated/dataModel";
+import { getViewer, optional, requirePermission, requireViewer } from "./lib";
 import { can } from "./permissions";
 import { buildChain, describeSteps, notifyFirstApprover, previewRoute, stepLabel } from "./approvals";
 import { notify } from "./notifications";
@@ -22,6 +22,22 @@ export const EXPENSE_CATEGORIES = [
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_RECEIPTS = 5;
+const MAX_PROOF = 5;
+const file = v.object({ storageId: v.id("_storage"), name: v.string() });
+
+async function toAttachments(ctx: QueryCtx, files: { storageId: Id<"_storage">; name: string }[]) {
+  return await Promise.all(
+    files.map(async (r) => {
+      const type = (await ctx.db.system.get(r.storageId))?.contentType ?? "";
+      return {
+        name: r.name,
+        url: await ctx.storage.getUrl(r.storageId),
+        isImage: type.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic)$/i.test(r.name),
+        isPdf: type.includes("pdf") || /\.pdf$/i.test(r.name),
+      };
+    }),
+  );
+}
 
 async function shapeClaim(ctx: QueryCtx, c: Doc<"expenseClaims">) {
   const employee = await ctx.db.get(c.employeeId);
@@ -36,17 +52,9 @@ async function shapeClaim(ctx: QueryCtx, c: Doc<"expenseClaims">) {
     currency: c.currency,
     items: c.items,
     total: c.total,
-    receipts: await Promise.all(
-      c.receipts.map(async (r) => {
-        const type = (await ctx.db.system.get(r.storageId))?.contentType ?? "";
-        return {
-          name: r.name,
-          url: await ctx.storage.getUrl(r.storageId),
-          isImage: type.startsWith("image/") || /\.(png|jpe?g|gif|webp|heic)$/i.test(r.name),
-          isPdf: type.includes("pdf") || /\.pdf$/i.test(r.name),
-        };
-      }),
-    ),
+    receipts: await toAttachments(ctx, c.receipts),
+    paymentProof: await toAttachments(ctx, c.paymentProof ?? []),
+    paymentReference: c.paymentReference ?? null,
     // "paid" is a stage after "approved"; the stored status stays "approved".
     status: c.paidAt ? ("paid" as const) : c.status,
     currentStep: pendingStep
@@ -158,10 +166,13 @@ export const withdraw = mutation({
   },
 });
 
-/** Finance marks an approved claim as paid. This also records it as an expense in Finance. */
+/**
+ * Finance marks an approved claim as paid, optionally with proof (invoice, transfer slip)
+ * and a reference. This also records it as an expense in Finance.
+ */
 export const markPaid = mutation({
-  args: { id: v.id("expenseClaims") },
-  handler: async (ctx, { id }) => {
+  args: { id: v.id("expenseClaims"), proof: v.optional(v.array(file)), reference: v.optional(v.string()) },
+  handler: async (ctx, { id, proof = [], reference }) => {
     const viewer = await requirePermission(ctx, "finance.view");
     const c = await ctx.db.get(id);
     if (!c) throw new ConvexError("Claim not found.");
@@ -177,10 +188,17 @@ export const markPaid = mutation({
       category: "Expense claims",
       date: new Date(now).toISOString().slice(0, 10),
     });
-    await ctx.db.patch(id, { paidAt: now, paidBy: viewer._id, transactionId });
+    if (proof.length > MAX_PROOF) throw new ConvexError(`Attach up to ${MAX_PROOF} files as proof.`);
+    await ctx.db.patch(id, {
+      paidAt: now,
+      paidBy: viewer._id,
+      transactionId,
+      paymentProof: proof.length ? proof : undefined,
+      paymentReference: optional(reference),
+    });
     await notify(ctx, c.employeeId, {
       title: "Expense claim paid",
-      body: `"${c.title}" (${c.currency} ${c.total.toFixed(2)}) has been paid.`,
+      body: `"${c.title}" (${c.currency} ${c.total.toFixed(2)}) has been paid.${proof.length ? " Proof of payment is attached." : ""}`,
       href: "/dashboard/expenses",
       tone: "success",
     });

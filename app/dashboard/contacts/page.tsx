@@ -10,6 +10,8 @@ import { Avatar } from '@/components/ui/avatar'
 import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { AddContactModal } from '@/components/ui/add-contact-modal'
+import { Pager } from '@/components/ui/pagination'
+import { TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 
 const TAG_TONE: Record<string, BadgeTone> = {
   client:     'info',
@@ -35,6 +37,7 @@ export default function ContactsPage() {
         [c.name, c.company, c.email, c.phone, ...c.tags].some((v) => v?.toLowerCase().includes(q)),
       )
     : contacts
+  const pages = usePagination(visible, TABLE_PAGE_SIZE, q)
 
   return (
     <div className="space-y-6">
@@ -95,7 +98,7 @@ export default function ContactsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line border-t border-line">
-                {visible.map((contact) => (
+                {pages.pageItems.map((contact) => (
                   <tr key={contact.id} className="trow align-middle">
                     <td className="px-6 py-3.5">
                       <div className="flex items-center gap-3">
@@ -137,6 +140,7 @@ export default function ContactsPage() {
                 ))}
               </tbody>
             </table>
+            <Pager pagination={pages} className="border-t border-line px-6 py-3" />
           </div>
         )}
       </div>

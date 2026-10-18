@@ -15,6 +15,8 @@ import { EmptyState, PageSkeleton, Progress } from '@/components/ui/states'
 import { ProjectDialog } from '@/components/projects/project-dialog'
 import { PROJECT_STATUS, formatShortDate, type ProjectStatus } from '@/components/projects/meta'
 import { cn } from '@/lib/utils'
+import { Pager } from '@/components/ui/pagination'
+import { CARD_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 
 type Row = NonNullable<FunctionReturnType<typeof api.projects.list>>['projects'][number]
 
@@ -27,6 +29,7 @@ export default function ProjectsPage() {
   const projects = useMemo(() => data?.projects ?? [], [data])
   const scoped = data?.canCreate && scope === 'mine' ? projects.filter((p) => p.isMine) : projects
   const shown = status === 'all' ? scoped : scoped.filter((p) => p.status === status)
+  const pages = usePagination(shown, CARD_PAGE_SIZE, `${status}|${scope}`)
 
   const header = (
     <PageHeader
@@ -121,10 +124,13 @@ export default function ProjectsPage() {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {shown.map((p) => (
-            <ProjectCard key={p.id} project={p} />
-          ))}
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {pages.pageItems.map((p) => (
+              <ProjectCard key={p.id} project={p} />
+            ))}
+          </div>
+          <Pager pagination={pages} />
         </div>
       )}
 
