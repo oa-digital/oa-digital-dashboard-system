@@ -10,6 +10,8 @@ import { Modal, Field, Input } from "./modal";
 import { Alert } from "./field";
 import { Progress, Skeleton } from "./states";
 import { errorMessage, formatCurrency, formatDate } from "@/lib/utils";
+import { Pager } from "./pagination";
+import { TABLE_PAGE_SIZE, usePagination } from "@/lib/use-pagination";
 
 /** Record client payments on a deal. Each one is also a "Payment received" in Finance. */
 export function DealPaymentsDialog({ deal, onClose }: { deal: DealView | null; onClose: () => void }) {
@@ -37,6 +39,7 @@ function PaymentsBody({ deal }: { deal: DealView }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const history = usePagination(data?.payments ?? [], TABLE_PAGE_SIZE);
 
   const remaining = Math.max(0, deal.value - deal.paid);
   const pct = deal.value > 0 ? (deal.paid / deal.value) * 100 : 0;
@@ -121,7 +124,7 @@ function PaymentsBody({ deal }: { deal: DealView }) {
           <p className="rounded-2xl bg-muted px-4 py-5 text-center text-[12.5px] text-fg-3">No payments yet.</p>
         ) : (
           <ul className="divide-y divide-line rounded-2xl bg-muted">
-            {data.payments.map((p) => (
+            {history.pageItems.map((p) => (
               <li key={p.id} className="flex items-center gap-3 px-4 py-2.5 text-[12.5px]">
                 <span className="w-24 shrink-0 text-fg-3">{formatDate(p.date)}</span>
                 <span className="min-w-0 flex-1 truncate text-fg-2">{p.description}</span>
@@ -144,7 +147,7 @@ function PaymentsBody({ deal }: { deal: DealView }) {
                 )}
               </li>
             ))}
-            {data.opening > 0 && (
+            {data.opening > 0 && history.page === history.pageCount && (
               <li className="flex items-center gap-3 px-4 py-2.5 text-[12.5px]">
                 <span className="w-24 shrink-0 text-fg-3">Earlier</span>
                 <span className="min-w-0 flex-1 truncate text-fg-3">Collected before payments were tracked</span>
@@ -154,6 +157,7 @@ function PaymentsBody({ deal }: { deal: DealView }) {
             )}
           </ul>
         )}
+        <Pager pagination={history} className="mt-2.5" />
       </div>
     </div>
   );

@@ -26,12 +26,8 @@ export function AuthShell({
     <main className="flex min-h-dvh p-2 md:p-3">
       {/* Brand panel */}
       <section className="ink hidden w-[46%] max-w-[44rem] flex-col justify-between p-10 lg:flex xl:p-14">
-        <div className="relative z-10 flex items-center gap-3">
-          <BrandMark size={44} />
-          <div className="leading-tight">
-            <p className="font-display text-[18px] font-semibold">OA Digital</p>
-            <p className="text-[12px] text-ink-muted">and Smart Security Solutions</p>
-          </div>
+        <div className="relative z-10">
+          <BrandMark variant="full" surface="dark" size={84} />
         </div>
 
         <div className="relative z-10">
@@ -71,9 +67,8 @@ export function AuthShell({
       {/* Form */}
       <section className="flex flex-1 items-center justify-center px-4 py-10">
         <div className="w-full max-w-[400px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <BrandMark size={40} />
-            <p className="font-display text-[18px] font-semibold text-fg">OA Digital</p>
+          <div className="mb-8 lg:hidden">
+            <BrandMark variant="full" size={64} />
           </div>
           <h1 className="font-display text-[30px] font-semibold leading-tight text-fg">{title}</h1>
           <p className="mt-2 text-[14px] text-fg-2">{subtitle}</p>

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { Pager } from "@/components/ui/pagination";
+import { TABLE_PAGE_SIZE, usePagination } from "@/lib/use-pagination";
 import { STATUS_FILL } from "./meta";
 import type { BoardTask } from "./board";
 
@@ -41,6 +43,9 @@ export function ProjectCalendar({ tasks, onOpen }: { tasks: BoardTask[]; onOpen:
     .filter(([day]) => day.startsWith(monthKey))
     .sort(([a], [b]) => a.localeCompare(b))
     .flatMap(([day, ts]) => ts.map((task) => ({ day, task })));
+
+  const monthPages = usePagination(monthTasks, TABLE_PAGE_SIZE, monthKey);
+  const unscheduledPages = usePagination(unscheduled, TABLE_PAGE_SIZE);
 
   const shift = (n: number) => setMonth((m) => new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + n, 1)));
   const label = month.toLocaleDateString("en-GB", { timeZone: "UTC", month: "long", year: "numeric" });
@@ -119,7 +124,7 @@ export function ProjectCalendar({ tasks, onOpen }: { tasks: BoardTask[]; onOpen:
         {/* Phones: this month's tasks as a readable list */}
         <ul className="divide-y divide-line border-t border-line md:hidden">
           {monthTasks.length === 0 && <li className="px-5 py-6 text-center text-[12.5px] text-fg-3">No tasks this month.</li>}
-          {monthTasks.map(({ day, task: t }) => (
+          {monthPages.pageItems.map(({ day, task: t }) => (
             <li key={t.id}>
               <button type="button" onClick={() => onOpen(t.id)} className="trow flex w-full items-center gap-3 px-5 py-3 text-left">
                 <span className={cn("w-12 shrink-0 text-center", day === today ? "text-brand" : "text-fg-2")}>
@@ -138,6 +143,7 @@ export function ProjectCalendar({ tasks, onOpen }: { tasks: BoardTask[]; onOpen:
             </li>
           ))}
         </ul>
+        <Pager pagination={monthPages} className="border-t border-line px-5 py-3 md:hidden" />
       </div>
 
       <aside className="card h-fit">
@@ -147,7 +153,7 @@ export function ProjectCalendar({ tasks, onOpen }: { tasks: BoardTask[]; onOpen:
           <p className="text-[12.5px] text-fg-3">Everything is scheduled.</p>
         ) : (
           <ul className="space-y-1.5">
-            {unscheduled.map((t) => (
+            {unscheduledPages.pageItems.map((t) => (
               <li key={t.id}>
                 <button type="button" onClick={() => onOpen(t.id)} className="w-full rounded-xl bg-muted px-3 py-2 text-left hover:bg-[var(--row-hover)]">
                   <span className="text-[10.5px] font-semibold text-fg-3">{t.key}</span>
@@ -157,6 +163,7 @@ export function ProjectCalendar({ tasks, onOpen }: { tasks: BoardTask[]; onOpen:
             ))}
           </ul>
         )}
+        <Pager pagination={unscheduledPages} className="mt-3" />
       </aside>
     </div>
   );

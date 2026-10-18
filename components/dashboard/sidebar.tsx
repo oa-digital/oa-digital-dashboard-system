@@ -72,11 +72,11 @@ function SidebarContent({
       <div className={cn("flex h-[4.5rem] shrink-0 items-center gap-3", collapsed ? "justify-center px-2" : "px-5")}>
         {collapsed ? (
           <button type="button" onClick={onToggleCollapsed} aria-label="Expand sidebar" title="Expand sidebar">
-            <BrandMark size={38} />
+            <BrandMark size={24} />
           </button>
         ) : (
           <>
-            <BrandMark size={38} />
+            <BrandMark size={22} />
             <div className="min-w-0 flex-1 leading-tight">
               <p className="truncate font-display text-[16px] font-semibold text-fg">OA Digital</p>
               <p className="truncate text-[11px] text-fg-3">Command Center</p>

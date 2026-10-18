@@ -9,6 +9,7 @@ import {
   KanbanIcon,
   SquaresFourIcon,
   UsersThreeIcon,
+  VideoCameraIcon,
   WalletIcon,
 } from "@phosphor-icons/react";
 import type { Permission } from "@/convex/permissions";
@@ -36,6 +37,7 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
     label: "Work",
     items: [
       { href: "/dashboard/projects",  label: "Projects",  icon: FolderSimpleIcon,      description: "Delivery projects, tasks & docs" },
+      { href: "/dashboard/meetings",  label: "Meetings",  icon: VideoCameraIcon,       description: "Google Meet calls & invites" },
       { href: "/dashboard/leave",     label: "Leave",     icon: CalendarCheckIcon,     description: "Request time off, see who's away" },
       { href: "/dashboard/expenses",  label: "Expenses",  icon: ReceiptIcon,           description: "Claim back work spending" },
       { href: "/dashboard/approvals", label: "Approvals", icon: CheckSquareOffsetIcon, description: "Requests waiting on you", badge: "approvals" },

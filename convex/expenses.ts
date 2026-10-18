@@ -1,9 +1,9 @@
 import { ConvexError, v } from "convex/values";
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getViewer, optional, requirePermission, requireViewer } from "./lib";
 import { can } from "./permissions";
-import { buildChain, describeSteps, notifyFirstApprover, previewRoute, stepLabel } from "./approvals";
+import { buildChain, decideExpense, describeSteps, notifyFirstApprover, previewRoute, stepLabel } from "./approvals";
 import { notify } from "./notifications";
 import { currency } from "./schema";
 
@@ -166,6 +166,41 @@ export const withdraw = mutation({
   },
 });
 
+/** Records the payout: an expense in Finance, the proof and reference on the claim, and a notice to the claimant. */
+async function payClaim(
+  ctx: MutationCtx,
+  viewer: Doc<"employees">,
+  c: Doc<"expenseClaims">,
+  proof: { storageId: Id<"_storage">; name: string }[],
+  reference: string | undefined,
+) {
+  if (proof.length > MAX_PROOF) throw new ConvexError(`Attach up to ${MAX_PROOF} files as proof.`);
+  const employee = await ctx.db.get(c.employeeId);
+  const now = Date.now();
+  const transactionId = await ctx.db.insert("transactions", {
+    type: "expense",
+    description: `Expense claim: ${c.title}`,
+    amount: c.total,
+    currency: c.currency,
+    person: employee?.name,
+    category: "Expense claims",
+    date: new Date(now).toISOString().slice(0, 10),
+  });
+  await ctx.db.patch(c._id, {
+    paidAt: now,
+    paidBy: viewer._id,
+    transactionId,
+    paymentProof: proof.length ? proof : undefined,
+    paymentReference: optional(reference),
+  });
+  await notify(ctx, c.employeeId, {
+    title: "Expense claim paid",
+    body: `"${c.title}" (${c.currency} ${c.total.toFixed(2)}) has been paid.${proof.length ? " Proof of payment is attached." : ""}`,
+    href: "/dashboard/expenses",
+    tone: "success",
+  });
+}
+
 /**
  * Finance marks an approved claim as paid, optionally with proof (invoice, transfer slip)
  * and a reference. This also records it as an expense in Finance.
@@ -177,30 +212,16 @@ export const markPaid = mutation({
     const c = await ctx.db.get(id);
     if (!c) throw new ConvexError("Claim not found.");
     if (c.status !== "approved" || c.paidAt) throw new ConvexError("Only approved, unpaid claims can be marked paid.");
-    const employee = await ctx.db.get(c.employeeId);
-    const now = Date.now();
-    const transactionId = await ctx.db.insert("transactions", {
-      type: "expense",
-      description: `Expense claim: ${c.title}`,
-      amount: c.total,
-      currency: c.currency,
-      person: employee?.name,
-      category: "Expense claims",
-      date: new Date(now).toISOString().slice(0, 10),
-    });
-    if (proof.length > MAX_PROOF) throw new ConvexError(`Attach up to ${MAX_PROOF} files as proof.`);
-    await ctx.db.patch(id, {
-      paidAt: now,
-      paidBy: viewer._id,
-      transactionId,
-      paymentProof: proof.length ? proof : undefined,
-      paymentReference: optional(reference),
-    });
-    await notify(ctx, c.employeeId, {
-      title: "Expense claim paid",
-      body: `"${c.title}" (${c.currency} ${c.total.toFixed(2)}) has been paid.${proof.length ? " Proof of payment is attached." : ""}`,
-      href: "/dashboard/expenses",
-      tone: "success",
-    });
+    await payClaim(ctx, viewer, c, proof, reference);
+  },
+});
+
+/** Approves a pending claim and pays it in one step (from Approvals). All or nothing. */
+export const approveAndPay = mutation({
+  args: { id: v.id("expenseClaims"), proof: v.optional(v.array(file)), reference: v.optional(v.string()) },
+  handler: async (ctx, { id, proof = [], reference }) => {
+    const viewer = await requirePermission(ctx, "finance.view");
+    const c = await decideExpense(ctx, viewer, id, "approve", undefined, { payingNow: true });
+    await payClaim(ctx, viewer, c, proof, reference);
   },
 });

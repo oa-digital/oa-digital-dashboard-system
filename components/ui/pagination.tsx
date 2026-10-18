@@ -40,3 +40,23 @@ export function Pager({ pagination: p, className }: { pagination: Pagination; cl
     </nav>
   );
 }
+
+/** "Load more" for feeds (notifications, activity). Pass Convex `usePaginatedQuery`'s status. */
+export function LoadMore({
+  status,
+  onLoadMore,
+  className,
+}: {
+  status: "LoadingFirstPage" | "CanLoadMore" | "LoadingMore" | "Exhausted";
+  onLoadMore: () => void;
+  className?: string;
+}) {
+  if (status !== "CanLoadMore" && status !== "LoadingMore") return null;
+  return (
+    <div className={cn("flex justify-center", className)}>
+      <button type="button" onClick={onLoadMore} disabled={status === "LoadingMore"} className="btn btn-secondary btn-sm">
+        {status === "LoadingMore" ? "Loading…" : "Load more"}
+      </button>
+    </div>
+  );
+}

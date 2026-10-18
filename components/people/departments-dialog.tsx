@@ -8,6 +8,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Modal } from "@/components/ui/modal";
 import { Alert, Input } from "@/components/ui/field";
 import { errorMessage } from "@/lib/utils";
+import { Pager } from "@/components/ui/pagination";
+import { TABLE_PAGE_SIZE, usePagination } from "@/lib/use-pagination";
 
 type Department = { id: string; name: string; headcount: number };
 
@@ -19,6 +21,7 @@ export function DepartmentsDialog({ open, onClose, departments }: { open: boolea
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [error, setError] = useState("");
+  const pages = usePagination(departments, TABLE_PAGE_SIZE);
 
   async function attempt(fn: () => Promise<unknown>) {
     setError("");
@@ -37,7 +40,7 @@ export function DepartmentsDialog({ open, onClose, departments }: { open: boolea
         {error && <Alert icon={WarningCircleIcon}>{error}</Alert>}
 
         <ul className="divide-y divide-line rounded-2xl bg-muted">
-          {departments.map((d) => (
+          {pages.pageItems.map((d) => (
             <li key={d.id} className="flex items-center gap-2 px-4 py-2.5">
               {editingId === d.id ? (
                 <form
@@ -91,6 +94,7 @@ export function DepartmentsDialog({ open, onClose, departments }: { open: boolea
           ))}
           {departments.length === 0 && <li className="px-4 py-6 text-center text-[13px] text-fg-3">No departments yet.</li>}
         </ul>
+        <Pager pagination={pages} />
 
         <form
           className="flex items-center gap-2"

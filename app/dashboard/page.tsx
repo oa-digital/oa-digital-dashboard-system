@@ -1,5 +1,7 @@
 'use client'
 
+import { Pager } from '@/components/ui/pagination'
+import { TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 import { useMemo } from 'react'
 import { useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
@@ -546,17 +548,7 @@ function PersonalOverview() {
             title={user.department ? `Your team · ${user.department}` : 'Your team'}
             description={teammates.length ? `${teammates.length} colleague${teammates.length !== 1 ? 's' : ''} in your department` : 'Nobody else is in your department yet'}
           />
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {teammates.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 rounded-2xl bg-muted p-3">
-                <Avatar name={p.name} size={40} />
-                <div className="min-w-0">
-                  <p className="truncate text-[13.5px] font-semibold text-fg">{p.name}</p>
-                  <p className="truncate text-[12px] text-fg-3">{p.jobTitle}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <TeammateList people={teammates} />
         </Card>
       </div>
 
@@ -576,6 +568,26 @@ function PersonalOverview() {
         </ul>
       </Card>
     </div>
+  )
+}
+
+function TeammateList({ people }: { people: { id: string; name: string; jobTitle: string }[] }) {
+  const pages = usePagination(people, TABLE_PAGE_SIZE)
+  return (
+    <>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {pages.pageItems.map((p) => (
+          <li key={p.id} className="flex items-center gap-3 rounded-2xl bg-muted p-3">
+            <Avatar name={p.name} size={40} />
+            <div className="min-w-0">
+              <p className="truncate text-[13.5px] font-semibold text-fg">{p.name}</p>
+              <p className="truncate text-[12px] text-fg-3">{p.jobTitle}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <Pager pagination={pages} className="mt-3" />
+    </>
   )
 }
 

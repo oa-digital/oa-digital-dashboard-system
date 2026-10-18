@@ -3,13 +3,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '@/convex/_generated/api'
-import { AddressBookIcon, MagnifyingGlassIcon, UserPlusIcon } from '@phosphor-icons/react'
+import { AddressBookIcon, MagnifyingGlassIcon, PaperPlaneTiltIcon, UserPlusIcon } from '@phosphor-icons/react'
 import { formatDate } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { Avatar } from '@/components/ui/avatar'
 import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { EmptyState, Skeleton } from '@/components/ui/states'
 import { AddContactModal } from '@/components/ui/add-contact-modal'
+import { ContactDialog, type ContactTarget } from '@/components/contacts/contact-dialog'
 import { Pager } from '@/components/ui/pagination'
 import { TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 
@@ -22,6 +23,8 @@ const TAG_TONE: Record<string, BadgeTone> = {
   logistics:  'neutral',
 }
 
+const tagTone = (tag: string): BadgeTone => TAG_TONE[tag.toLowerCase()] ?? 'neutral'
+
 
 export default function ContactsPage() {
   const [contactModalOpen, setContactModalOpen] = useState(false)
@@ -30,6 +33,7 @@ export default function ContactsPage() {
   const loading = contactsData === undefined
   const contacts = contactsData ?? []
   const [query, setQuery] = useState('')
+  const [viewing, setViewing] = useState<ContactTarget | null>(null)
 
   const q = query.trim().toLowerCase()
   const visible = q
@@ -94,19 +98,20 @@ export default function ContactsPage() {
                   <th className="px-3 py-3 font-medium">Company</th>
                   <th className="px-3 py-3 font-medium">Tags</th>
                   <th className="px-3 py-3 font-medium">Phone</th>
-                  <th className="px-6 py-3 text-right font-medium">Added</th>
+                  <th className="px-3 py-3 text-right font-medium">Added</th>
+                  <th className="w-14 px-6 py-3"><span className="sr-only">Email</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line border-t border-line">
                 {pages.pageItems.map((contact) => (
-                  <tr key={contact.id} className="trow align-middle">
+                  <tr key={contact.id} className="trow cursor-pointer align-middle" onClick={() => setViewing({ id: contact.id, name: contact.name })}>
                     <td className="px-6 py-3.5">
                       <div className="flex items-center gap-3">
                         <Avatar name={contact.name} size={38} />
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-fg">{contact.name}</p>
                           {contact.email ? (
-                            <a href={`mailto:${contact.email}`} className="block truncate text-[12px] text-fg-3 hover:text-brand">
+                            <a href={`mailto:${contact.email}`} onClick={(e) => e.stopPropagation()} className="block truncate text-[12px] text-fg-3 hover:text-brand">
                               {contact.email}
                             </a>
                           ) : (
@@ -124,17 +129,33 @@ export default function ContactsPage() {
                     <td className="px-3 py-3.5">
                       <div className="flex flex-wrap gap-1.5">
                         {contact.tags.map((tag) => (
-                          <Badge key={tag} tone={TAG_TONE[tag.toLowerCase()] ?? 'neutral'} className="capitalize">
+                          <Badge key={tag} tone={tagTone(tag)} className="capitalize">
                             {tag}
                           </Badge>
                         ))}
                       </div>
                     </td>
                     <td className="tabular whitespace-nowrap px-3 py-3.5 text-fg-2">
-                      {contact.phone ? <a href={`tel:${contact.phone}`} className="hover:text-brand">{contact.phone}</a> : '—'}
+                      {contact.phone ? <a href={`tel:${contact.phone}`} onClick={(e) => e.stopPropagation()} className="hover:text-brand">{contact.phone}</a> : '—'}
                     </td>
-                    <td className="whitespace-nowrap px-6 py-3.5 text-right text-[12px] text-fg-3">
+                    <td className="whitespace-nowrap px-3 py-3.5 text-right text-[12px] text-fg-3">
                       {contact.createdAt ? formatDate(contact.createdAt) : '—'}
+                    </td>
+                    <td className="px-6 py-3.5 text-right">
+                      {contact.email && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setViewing({ id: contact.id, name: contact.name, compose: true })
+                          }}
+                          className="icon-btn icon-btn-sm"
+                          aria-label={`Email ${contact.name}`}
+                          title="Send email"
+                        >
+                          <PaperPlaneTiltIcon size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -144,6 +165,8 @@ export default function ContactsPage() {
           </div>
         )}
       </div>
+
+      <ContactDialog target={viewing} tagTone={tagTone} onClose={() => setViewing(null)} />
 
       <AddContactModal
         open={contactModalOpen}

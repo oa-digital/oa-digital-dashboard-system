@@ -46,7 +46,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return (
       <div className="flex h-dvh items-center justify-center p-4">
         <div className="card max-w-sm p-8 text-center">
-          <BrandMark size={48} className="mx-auto" />
+          <div className="flex justify-center">
+            <BrandMark variant="full" size={64} />
+          </div>
           <h1 className="mt-5 font-display text-[20px] font-semibold text-fg">Account not set up</h1>
           <p className="mt-2 text-[13.5px] text-fg-2">
             You&apos;re signed in, but no role has been assigned to this account yet. Ask an administrator to set it up.
@@ -70,7 +72,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!hydrated || !user) {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-4">
-        <BrandMark size={48} className="animate-pulse" />
+        <BrandMark variant="full" size={72} className="animate-pulse" />
         <p className="text-[13px] text-fg-3">Loading your workspace…</p>
       </div>
     );

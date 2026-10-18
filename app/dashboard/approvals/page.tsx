@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { CalendarBlankIcon, CheckIcon, CheckSquareOffsetIcon, ReceiptIcon, XIcon, WarningCircleIcon } from '@phosphor-icons/react'
+import { CalendarBlankIcon, CheckIcon, CheckSquareOffsetIcon, ReceiptIcon, WalletIcon, XIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { api } from '@/convex/_generated/api'
 import type { FunctionReturnType } from 'convex/server'
 import { PageHeader } from '@/components/ui/page-header'
@@ -13,6 +13,7 @@ import { Modal } from '@/components/ui/modal'
 import { Alert, Field, Textarea } from '@/components/ui/field'
 import { EmptyState, PageSkeleton } from '@/components/ui/states'
 import { AttachmentList } from '@/components/work/attachments'
+import { PayClaimDialog } from '@/components/work/pay-claim-dialog'
 import { Pager } from '@/components/ui/pagination'
 import { CARD_PAGE_SIZE, TABLE_PAGE_SIZE, usePagination } from '@/lib/use-pagination'
 import { cn, errorMessage, formatCurrency, formatDate, formatRelativeDate } from '@/lib/utils'
@@ -26,6 +27,7 @@ export default function ApprovalsPage() {
   const inbox = useQuery(api.approvals.inbox)
   const [tab, setTab] = useState<'waiting' | 'others' | 'recent'>('waiting')
   const [declining, setDeclining] = useState<Item | null>(null)
+  const [paying, setPaying] = useState<Item | null>(null)
   const list = (tab === 'others' ? inbox?.others : inbox?.waiting) ?? []
   const pages = usePagination(list, CARD_PAGE_SIZE, tab)
 
@@ -64,7 +66,7 @@ export default function ApprovalsPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {pages.pageItems.map((item) => (
-              <ApprovalCard key={`${item.kind}-${item.id}`} item={item} onDecline={() => setDeclining(item)} />
+              <ApprovalCard key={`${item.kind}-${item.id}`} item={item} onDecline={() => setDeclining(item)} onPay={() => setPaying(item)} />
             ))}
           </div>
           <Pager pagination={pages} />
@@ -72,6 +74,15 @@ export default function ApprovalsPage() {
       )}
 
       <DeclineDialog item={declining} onClose={() => setDeclining(null)} />
+      <PayClaimDialog
+        approve
+        claim={
+          paying
+            ? { id: paying.id, title: paying.title, employee: paying.requester, total: paying.amount ?? 0, currency: (paying.currency ?? 'GHS') as Currency }
+            : null
+        }
+        onClose={() => setPaying(null)}
+      />
     </div>
   )
 }
@@ -85,7 +96,7 @@ function KindIcon({ kind }: { kind: Item['kind'] }) {
   )
 }
 
-function ApprovalCard({ item, onDecline }: { item: Item; onDecline: () => void }) {
+function ApprovalCard({ item, onDecline, onPay }: { item: Item; onDecline: () => void; onPay: () => void }) {
   const decide = useMutation(api.approvals.decide)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -158,15 +169,26 @@ function ApprovalCard({ item, onDecline }: { item: Item; onDecline: () => void }
       {error && <div className="mt-3"><Alert icon={WarningCircleIcon}>{error}</Alert></div>}
 
       <div className="flex-1" />
-      <div className="mt-4 flex justify-end gap-2 border-t border-line pt-4">
+      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-line pt-4">
         <button onClick={onDecline} disabled={busy} className="btn btn-secondary">
           <XIcon size={15} weight="bold" />
           Decline
         </button>
-        <button onClick={approve} disabled={busy} className="btn btn-primary">
+        <button
+          onClick={approve}
+          disabled={busy}
+          className={item.canPay ? 'btn btn-secondary' : 'btn btn-primary'}
+          title={item.canPay ? 'Approve now and pay later from Expenses' : undefined}
+        >
           <CheckIcon size={15} weight="bold" />
           {busy ? 'Approving…' : item.onBehalfOf ? 'Approve on their behalf' : 'Approve'}
         </button>
+        {item.canPay && (
+          <button onClick={onPay} disabled={busy} className="btn btn-primary">
+            <WalletIcon size={15} weight="bold" />
+            Approve &amp; pay
+          </button>
+        )}
       </div>
     </article>
   )

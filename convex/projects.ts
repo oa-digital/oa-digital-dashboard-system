@@ -1,10 +1,12 @@
 import { ConvexError, v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getViewer, requirePermission, requireViewer } from "./lib";
 import { can } from "./permissions";
 import { notify } from "./notifications";
 import { projectStatus } from "./schema";
+import { internal } from "./_generated/api";
 
 /*
  * Who can do what on a project:
@@ -147,10 +149,9 @@ export const get = query({
     const access = await accessTo(ctx, viewer, project);
     if (!access.canView) return { forbidden: true as const };
 
-    const [ids, tasks, activity] = await Promise.all([
+    const [ids, tasks] = await Promise.all([
       memberIds(ctx, id),
       ctx.db.query("tasks").withIndex("by_project", (q) => q.eq("projectId", id)).collect(),
-      ctx.db.query("projectActivity").withIndex("by_project", (q) => q.eq("projectId", id)).order("desc").take(25),
     ]);
     const members = (await Promise.all(ids.map((mid) => ctx.db.get(mid)))).filter((e): e is Doc<"employees"> => !!e);
     const deptNames = new Map<string, string>();
@@ -226,14 +227,6 @@ export const get = query({
           assignee: members.find((m) => m._id === t.assigneeId)?.name ?? null,
           priority: t.priority,
         })),
-      activity: await Promise.all(
-        activity.map(async (a) => ({
-          id: a._id,
-          actor: (await ctx.db.get(a.actorId))?.name ?? "Someone",
-          text: a.text,
-          createdAt: a.createdAt,
-        })),
-      ),
       deal: deal
         ? {
             client: deal.client,
@@ -243,6 +236,34 @@ export const get = query({
             currency: deal.currency,
           }
         : null,
+    };
+  },
+});
+
+/** A project's activity feed, newest first, a page at a time ("Load more"). */
+export const activity = query({
+  args: { projectId: v.id("projects"), paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { projectId, paginationOpts }) => {
+    const viewer = await getViewer(ctx);
+    const project = await ctx.db.get(projectId);
+    if (!viewer || !project || !(await accessTo(ctx, viewer, project)).canView) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
+    const result = await ctx.db
+      .query("projectActivity")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .order("desc")
+      .paginate(paginationOpts);
+    return {
+      ...result,
+      page: await Promise.all(
+        result.page.map(async (a) => ({
+          id: a._id,
+          actor: (await ctx.db.get(a.actorId))?.name ?? "Someone",
+          text: a.text,
+          createdAt: a.createdAt,
+        })),
+      ),
     };
   },
 });
@@ -412,6 +433,8 @@ export const remove = mutation({
     }
     for (const m of await ctx.db.query("projectMembers").withIndex("by_project", (q) => q.eq("projectId", id)).collect()) await ctx.db.delete(m._id);
     for (const a of await ctx.db.query("projectActivity").withIndex("by_project", (q) => q.eq("projectId", id)).collect()) await ctx.db.delete(a._id);
+    // Meetings stay (they're real calendar events); they just stop pointing at the project.
+    for (const m of await ctx.db.query("meetings").withIndex("by_project", (q) => q.eq("projectId", id)).collect()) await ctx.db.patch(m._id, { projectId: undefined });
     await ctx.db.delete(id);
   },
 });
@@ -430,7 +453,10 @@ export const documents = query({
       docs.map(async (d) => ({
         id: d._id,
         name: d.name,
-        kind: d.storageId ? ("file" as const) : ("link" as const),
+        kind: d.storageId ? ("file" as const) : d.googleFileId ? ("google" as const) : ("link" as const),
+        googleType: d.googleType ?? null,
+        driveUrl: d.driveUrl ?? null,
+        driveStatus: d.driveStatus ?? null,
         url: d.storageId ? await ctx.storage.getUrl(d.storageId) : (d.url ?? null),
         size: d.size ?? null,
         contentType: d.contentType ?? null,
@@ -464,7 +490,17 @@ export const addDocument = mutation({
     if (!doc.storageId && !doc.url) throw new ConvexError("Upload a file or paste a link.");
     if (doc.url && !/^https?:\/\//i.test(doc.url)) throw new ConvexError("Links must start with http:// or https://");
     const name = doc.name.trim() || "Untitled";
-    await ctx.db.insert("projectDocuments", { projectId, ...doc, name, uploadedBy: viewer._id, createdAt: Date.now() });
+    // Uploads are copied to the company Drive in the background when Google is connected.
+    const toDrive = !!doc.storageId && !!(await ctx.db.query("googleConnection").first());
+    const id = await ctx.db.insert("projectDocuments", {
+      projectId,
+      ...doc,
+      name,
+      driveStatus: toDrive ? "pending" : undefined,
+      uploadedBy: viewer._id,
+      createdAt: Date.now(),
+    });
+    if (toDrive) await ctx.scheduler.runAfter(0, internal.drive.copyUploadToDrive, { documentId: id });
     await logActivity(ctx, projectId, viewer._id, `${doc.storageId ? "uploaded" : "linked"} "${name}"`);
   },
 });

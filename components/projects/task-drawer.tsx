@@ -181,11 +181,17 @@ function TaskEditor({
   );
 }
 
+const COMMENTS_PAGE = 10;
+
 function Comments({ taskId }: { taskId: Id<"tasks"> }) {
   const comments = useQuery(api.tasks.comments, { taskId });
   const add = useMutation(api.tasks.addComment);
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  // Long threads show the latest comments; older ones load on demand.
+  const [shown, setShown] = useState(COMMENTS_PAGE);
+  const all = comments ?? [];
+  const hidden = Math.max(0, all.length - shown);
 
   return (
     <section>
@@ -193,8 +199,13 @@ function Comments({ taskId }: { taskId: Id<"tasks"> }) {
         <ChatCircleIcon size={13} weight="bold" />
         Comments {comments?.length ? `· ${comments.length}` : ""}
       </p>
+      {hidden > 0 && (
+        <button type="button" onClick={() => setShown((n) => n + COMMENTS_PAGE)} className="btn btn-ghost btn-sm mb-3">
+          Show {Math.min(hidden, COMMENTS_PAGE)} earlier comment{Math.min(hidden, COMMENTS_PAGE) !== 1 ? "s" : ""}
+        </button>
+      )}
       <ul className="space-y-3">
-        {(comments ?? []).map((c) => (
+        {all.slice(hidden).map((c) => (
           <li key={c.id} className="flex gap-2.5">
             <Avatar name={c.author} size={28} />
             <div className="min-w-0 flex-1 rounded-2xl bg-muted px-3 py-2">

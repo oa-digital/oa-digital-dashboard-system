@@ -15,25 +15,29 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 export type PayableClaim = { id: string; title: string; employee: string; total: number; currency: Currency };
 
-/** Marks an approved claim as paid, with optional proof of payment (invoice, transfer slip) and a reference. */
-export function PayClaimDialog({ claim, onClose }: { claim: PayableClaim | null; onClose: () => void }) {
+/**
+ * Marks an approved claim as paid, with optional proof of payment (invoice, transfer slip) and a reference.
+ * With `approve`, a pending claim is approved and paid in one step (from Approvals).
+ */
+export function PayClaimDialog({ claim, onClose, approve = false }: { claim: PayableClaim | null; onClose: () => void; approve?: boolean }) {
   return (
     <Modal
       open={Boolean(claim)}
       onClose={onClose}
-      title="Mark as paid"
+      title={approve ? "Approve and pay" : "Mark as paid"}
       icon={WalletIcon}
       description={claim ? `${claim.employee} · ${claim.title}` : undefined}
       width="32rem"
     >
-      {claim && <PayForm key={claim.id} claim={claim} onClose={onClose} />}
+      {claim && <PayForm key={claim.id} claim={claim} onClose={onClose} approve={approve} />}
     </Modal>
   );
 }
 
-function PayForm({ claim, onClose }: { claim: PayableClaim; onClose: () => void }) {
+function PayForm({ claim, onClose, approve }: { claim: PayableClaim; onClose: () => void; approve: boolean }) {
   const generateUploadUrl = useMutation(api.expenses.generateUploadUrl);
   const markPaid = useMutation(api.expenses.markPaid);
+  const approveAndPay = useMutation(api.expenses.approveAndPay);
   const fileInput = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [reference, setReference] = useState("");
@@ -63,7 +67,8 @@ function PayForm({ claim, onClose }: { claim: PayableClaim; onClose: () => void 
     setError("");
     try {
       const proof = await Promise.all(files.map(upload));
-      await markPaid({ id: claim.id as Id<"expenseClaims">, proof, reference: reference || undefined });
+      const args = { id: claim.id as Id<"expenseClaims">, proof, reference: reference || undefined };
+      await (approve ? approveAndPay(args) : markPaid(args));
       onClose();
     } catch (err) {
       setError(err instanceof Error && !("data" in err) ? err.message : errorMessage(err));
@@ -107,9 +112,9 @@ function PayForm({ claim, onClose }: { claim: PayableClaim; onClose: () => void 
         <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. MoMo transaction ID or bank reference" />
       </Field>
 
-      <p className="text-[11.5px] text-fg-3">This also records the payment as an expense in Finance, and tells {claim.employee} it&apos;s been paid.</p>
+      <p className="text-[11.5px] text-fg-3">{approve ? "Approves the claim, records" : "This also records"} the payment as an expense in Finance, and tells {claim.employee} it&apos;s been paid.</p>
 
-      <ModalActions onClose={onClose} submitLabel={saving ? "Saving…" : "Mark paid"} />
+      <ModalActions onClose={onClose} submitLabel={saving ? "Saving…" : approve ? "Approve and pay" : "Mark paid"} />
     </form>
   );
 }

@@ -1,12 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
+  CalendarPlusIcon,
   CrownSimpleIcon,
   FileIcon,
   FilePdfIcon,
   FileImageIcon,
+  GoogleDriveLogoIcon,
+  PresentationChartIcon,
+  TableIcon,
+  FileDocIcon,
   HandshakeIcon,
   LinkSimpleIcon,
   TrashIcon,
@@ -23,6 +28,12 @@ import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Alert, Input, Select } from "@/components/ui/field";
 import { EmptyState, Progress } from "@/components/ui/states";
+import { LoadMore, Pager } from "@/components/ui/pagination";
+import { MeetingDialog } from "@/components/meetings/meeting-dialog";
+import { useNow } from "@/lib/use-now";
+import { MeetingList } from "@/components/meetings/meeting-list";
+import { GoogleNotice, useGoogleConnected } from "@/components/meetings/google-notice";
+import { TABLE_PAGE_SIZE, usePagination } from "@/lib/use-pagination";
 import { cn, errorMessage, formatCurrency, formatRelativeDate } from "@/lib/utils";
 import type { Currency } from "@/lib/types";
 import { PRIORITY, TASK_COLUMNS, formatShortDate } from "./meta";
@@ -136,13 +147,62 @@ export function OverviewTab({ project, onOpenTask }: { project: ProjectDetail; o
           </Card>
         )}
 
-        <Card>
-          <CardHeader title="Activity" />
-          {project.activity.length === 0 ? (
-            <p className="text-[13px] text-fg-3">Nothing yet.</p>
-          ) : (
+        <ProjectMeetings project={project} />
+        <ActivityFeed projectId={project.id as Id<"projects">} />
+      </div>
+    </div>
+  );
+}
+
+/** Upcoming meetings for this project, with a button to schedule one with the team. */
+function ProjectMeetings({ project }: { project: ProjectDetail }) {
+  const meetings = useQuery(api.meetings.list, { projectId: project.id as Id<"projects"> });
+  const connected = useGoogleConnected();
+  const [open, setOpen] = useState(false);
+  const now = useNow();
+  const upcoming = (meetings ?? []).filter((m) => m.status === "scheduled" && m.endAt >= now);
+  return (
+    <Card>
+      <CardHeader
+        title="Meetings"
+        description={upcoming.length ? `${upcoming.length} coming up` : "Nothing scheduled"}
+        action={
+          connected && (
+            <button type="button" onClick={() => setOpen(true)} className="btn btn-secondary btn-sm">
+              <CalendarPlusIcon size={14} weight="bold" />
+              Schedule
+            </button>
+          )
+        }
+      />
+      <GoogleNotice what="Scheduling meetings" className="mb-3" />
+      {meetings === undefined ? null : <MeetingList meetings={upcoming} compact emptyText="No upcoming meetings for this project." />}
+      <MeetingDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        preset={{ title: `${project.name}: `, projectId: project.id, employeeIds: project.members.map((m) => m.id as string) }}
+      />
+    </Card>
+  );
+}
+
+const ACTIVITY_PAGE = 10;
+
+/** Fixed-height, scrollable feed; older entries load on demand. */
+function ActivityFeed({ projectId }: { projectId: Id<"projects"> }) {
+  const { results, status, loadMore } = usePaginatedQuery(api.projects.activity, { projectId }, { initialNumItems: ACTIVITY_PAGE });
+  return (
+    <Card className="flex h-[28rem] flex-col">
+      <CardHeader title="Activity" />
+      <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+        {status === "LoadingFirstPage" ? (
+          <p className="text-[13px] text-fg-3">Loading…</p>
+        ) : results.length === 0 ? (
+          <p className="text-[13px] text-fg-3">Nothing yet.</p>
+        ) : (
+          <>
             <ul className="space-y-3">
-              {project.activity.map((a) => (
+              {results.map((a) => (
                 <li key={a.id} className="flex gap-2.5 text-[12.5px]">
                   <Avatar name={a.actor} size={26} />
                   <div className="min-w-0">
@@ -154,10 +214,11 @@ export function OverviewTab({ project, onOpenTask }: { project: ProjectDetail; o
                 </li>
               ))}
             </ul>
-          )}
-        </Card>
+            <LoadMore status={status} onLoadMore={() => loadMore(ACTIVITY_PAGE)} className="mt-4 pb-1" />
+          </>
+        )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -170,6 +231,7 @@ export function TeamTab({ project }: { project: ProjectDetail }) {
   const [adding, setAdding] = useState("");
   const [error, setError] = useState("");
   const pid = project.id as Id<"projects">;
+  const members = usePagination(project.members, 6);
 
   async function attempt(fn: () => Promise<unknown>) {
     setError("");
@@ -208,8 +270,9 @@ export function TeamTab({ project }: { project: ProjectDetail }) {
           <EmptyState icon={UserPlusIcon} title="No one on the team yet" description="Add people so you can assign them tasks." />
         </div>
       ) : (
+        <div className="space-y-4">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {project.members.map((m) => (
+          {members.pageItems.map((m) => (
             <article key={m.id} className={cn("card flex flex-col p-5", m.isLead && "shadow-[0_0_0_2px_var(--brand-ring),var(--card-shadow)]")}>
               <div className="flex items-start gap-3.5">
                 <Avatar name={m.name} size={48} />
@@ -256,6 +319,8 @@ export function TeamTab({ project }: { project: ProjectDetail }) {
             </article>
           ))}
         </div>
+        <Pager pagination={members} />
+        </div>
       )}
     </div>
   );
@@ -264,6 +329,13 @@ export function TeamTab({ project }: { project: ProjectDetail }) {
 // ── Documents ──────────────────────────────────────────────────────────
 
 const MAX_BYTES = 25 * 1024 * 1024;
+
+const GOOGLE_FILE = {
+  document: { label: "Google Doc", icon: FileDocIcon },
+  spreadsheet: { label: "Google Sheet", icon: TableIcon },
+  presentation: { label: "Google Slides", icon: PresentationChartIcon },
+} as const;
+type GoogleType = keyof typeof GOOGLE_FILE;
 
 function fileIcon(contentType: string | null) {
   if (contentType?.includes("pdf")) return FilePdfIcon;
@@ -277,14 +349,22 @@ function formatBytes(n: number) {
 
 export function DocumentsTab({ projectId }: { projectId: Id<"projects"> }) {
   const docs = useQuery(api.projects.documents, { projectId });
+  const docPages = usePagination(docs ?? [], TABLE_PAGE_SIZE);
   const generateUploadUrl = useMutation(api.projects.generateUploadUrl);
   const addDocument = useMutation(api.projects.addDocument);
   const removeDocument = useMutation(api.projects.removeDocument);
+  const retryDriveCopy = useMutation(api.drive.retryDriveCopy);
   const fileInput = useRef<HTMLInputElement>(null);
   const [linkName, setLinkName] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const createGoogleFile = useAction(api.drive.createGoogleFile);
+  const connected = useGoogleConnected();
+  const [gName, setGName] = useState("");
+  const [gType, setGType] = useState<GoogleType>("document");
+  const [creating, setCreating] = useState(false);
 
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -313,9 +393,54 @@ export function DocumentsTab({ projectId }: { projectId: Id<"projects"> }) {
   return (
     <div className="space-y-5">
       {error && <Alert icon={WarningCircleIcon}>{error}</Alert>}
+      {notice && <Alert tone="info" icon={WarningCircleIcon}>{notice}</Alert>}
+      <Card>
+        <CardHeader
+          title="Create in Google Drive"
+          description="A new Doc, Sheet or Slides in the company Drive, in this project's folder. Anyone with the link can edit."
+          className="mb-3"
+        />
+        {connected === false ? (
+          <GoogleNotice what="Creating Google files" />
+        ) : (
+          <form
+            className="flex flex-col gap-2 sm:flex-row"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setError("");
+              setNotice("");
+              setCreating(true);
+              try {
+                const warning = await createGoogleFile({ projectId, name: gName, type: gType });
+                if (warning) setNotice(warning);
+                setGName("");
+              } catch (err) {
+                setError(errorMessage(err));
+              } finally {
+                setCreating(false);
+              }
+            }}
+          >
+            <Select value={gType} onChange={(e) => setGType(e.target.value as GoogleType)} className="sm:w-44" aria-label="File type">
+              {(Object.keys(GOOGLE_FILE) as GoogleType[]).map((t) => (
+                <option key={t} value={t}>{GOOGLE_FILE[t].label}</option>
+              ))}
+            </Select>
+            <Input required value={gName} onChange={(e) => setGName(e.target.value)} placeholder="Name, e.g. Site survey report" maxLength={200} />
+            <button type="submit" disabled={creating || !connected} className="btn btn-primary shrink-0">
+              <GoogleDriveLogoIcon size={16} weight="bold" />
+              {creating ? "Creating…" : "Create"}
+            </button>
+          </form>
+        )}
+      </Card>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="flex flex-col items-start gap-3">
-          <CardHeader title="Upload files" description="Specs, contracts, designs. Up to 25 MB each." className="mb-0" />
+          <CardHeader
+            title="Upload files"
+            description={connected ? "Specs, contracts, designs. Up to 25 MB each. A copy is saved to the project's Drive folder." : "Specs, contracts, designs. Up to 25 MB each."}
+            className="mb-0"
+          />
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => upload(e.target.files)} />
           <button type="button" onClick={() => fileInput.current?.click()} disabled={uploading > 0} className="btn btn-primary">
             <UploadSimpleIcon size={16} weight="bold" />
@@ -353,8 +478,8 @@ export function DocumentsTab({ projectId }: { projectId: Id<"projects"> }) {
           <EmptyState icon={FileIcon} title="No documents yet" description="Upload files or add links so the whole team can find them." />
         ) : (
           <ul className="divide-y divide-line">
-            {docs.map((d) => {
-              const Icon = d.kind === "link" ? LinkSimpleIcon : fileIcon(d.contentType);
+            {docPages.pageItems.map((d) => {
+              const Icon = d.kind === "google" && d.googleType ? GOOGLE_FILE[d.googleType].icon : d.kind === "link" ? LinkSimpleIcon : fileIcon(d.contentType);
               return (
                 <li key={d.id} className="trow flex items-center gap-3.5 px-5 py-3.5 md:px-6">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
@@ -369,9 +494,43 @@ export function DocumentsTab({ projectId }: { projectId: Id<"projects"> }) {
                       <p className="truncate text-[13.5px] font-semibold text-fg">{d.name}</p>
                     )}
                     <p className="truncate text-[12px] text-fg-3">
-                      {d.kind === "link" ? "Link" : d.size ? formatBytes(d.size) : "File"} · {d.uploadedBy} · {formatRelativeDate(new Date(d.createdAt).toISOString())}
+                      {d.kind === "google" && d.googleType ? GOOGLE_FILE[d.googleType].label : d.kind === "link" ? "Link" : d.size ? formatBytes(d.size) : "File"} · {d.uploadedBy} · {formatRelativeDate(new Date(d.createdAt).toISOString())}
                     </p>
                   </div>
+                  {d.kind === "file" &&
+                    (d.driveUrl ? (
+                      <a
+                        href={d.driveUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="icon-btn icon-btn-sm text-brand"
+                        aria-label={`Open ${d.name} in Google Drive`}
+                        title="Open the copy in Google Drive"
+                      >
+                        <GoogleDriveLogoIcon size={16} weight="bold" />
+                      </a>
+                    ) : d.driveStatus === "pending" ? (
+                      <span className="text-[11.5px] text-fg-3">Saving to Drive…</span>
+                    ) : (
+                      connected && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setError("");
+                            try {
+                              await retryDriveCopy({ documentId: d.id });
+                            } catch (err) {
+                              setError(errorMessage(err));
+                            }
+                          }}
+                          className={cn("btn btn-ghost btn-sm", d.driveStatus === "failed" && "text-danger")}
+                          title={d.driveStatus === "failed" ? "Copying to Drive failed. Try again." : "Save a copy to the project's Drive folder"}
+                        >
+                          <GoogleDriveLogoIcon size={14} weight="bold" />
+                          {d.driveStatus === "failed" ? "Retry Drive" : "Save to Drive"}
+                        </button>
+                      )
+                    ))}
                   {d.canDelete && (
                     <button type="button" onClick={() => removeDocument({ id: d.id })} className="icon-btn icon-btn-sm icon-btn-danger" aria-label={`Remove ${d.name}`} title="Remove">
                       <TrashIcon size={16} />
@@ -382,6 +541,7 @@ export function DocumentsTab({ projectId }: { projectId: Id<"projects"> }) {
             })}
           </ul>
         )}
+        <Pager pagination={docPages} className="border-t border-line px-5 py-3 md:px-6" />
       </Card>
     </div>
   );

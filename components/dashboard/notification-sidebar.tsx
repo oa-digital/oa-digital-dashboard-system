@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
 import {
   ArrowRightIcon,
   BellSimpleIcon,
@@ -18,27 +18,28 @@ import { useRole } from "@/lib/role-context";
 import { cn, formatCurrency, formatRelativeDate } from "@/lib/utils";
 import { TransactionRow } from "@/components/dashboard/widgets";
 import { EmptyState } from "@/components/ui/states";
+import { LoadMore } from "@/components/ui/pagination";
+
+const NOTIFICATIONS_PAGE = 10;
 
 const TONE_ICON = { success: CheckCircleIcon, danger: XCircleIcon, warning: HourglassMediumIcon, info: InfoIcon } as const;
 
 /**
- * What the bell shows: the viewer's notifications (approvals and decisions), deal
- * follow-ups (pipeline) and recent money movement (finance). Only unread notifications
- * count towards the badge.
+ * What the bell shows besides the viewer's own notifications: deal follow-ups (pipeline)
+ * and recent money movement (finance). Only unread notifications count towards the badge.
  */
 export function useNotifications() {
   const { can } = useRole();
-  const mine = useQuery(api.notifications.mine);
+  const unread = useQuery(api.notifications.unreadCount);
   const deals = useQuery(api.deals.list, can("pipeline.view") ? {} : "skip");
   const transactions = useQuery(api.transactions.list, can("finance.view") ? {} : "skip");
   const followUps = (deals ?? [])
     .filter((d) => d.value - d.paid > 0 && d.phase !== "done" && d.phase !== "hold" && d.nextAction)
     .slice(0, 5);
   return {
-    notifications: mine?.items ?? [],
     followUps,
     transactions: (transactions ?? []).slice(0, 5),
-    count: mine?.unread ?? 0,
+    count: unread ?? 0,
   };
 }
 
@@ -78,7 +79,12 @@ export function NotificationSidebar({ open, onClose }: NotificationSidebarProps)
 }
 
 function PanelBody({ onClose }: { onClose: () => void }) {
-  const { notifications, followUps, transactions, count } = useNotifications();
+  const { followUps, transactions, count } = useNotifications();
+  const {
+    results: notifications,
+    status,
+    loadMore,
+  } = usePaginatedQuery(api.notifications.list, {}, { initialNumItems: NOTIFICATIONS_PAGE });
   const markAllRead = useMutation(api.notifications.markAllRead);
 
   // Opening the panel counts as reading what's in it.
@@ -89,6 +95,7 @@ function PanelBody({ onClose }: { onClose: () => void }) {
     }
   }, [count, markAllRead]);
 
+  if (status === "LoadingFirstPage") return <div className="flex-1" aria-busy="true" />;
   if (notifications.length === 0 && followUps.length === 0 && transactions.length === 0) {
     return (
       <EmptyState
@@ -129,6 +136,7 @@ function PanelBody({ onClose }: { onClose: () => void }) {
               );
             })}
           </ul>
+          <LoadMore status={status} onLoadMore={() => loadMore(NOTIFICATIONS_PAGE)} className="mt-3" />
         </section>
       )}
 

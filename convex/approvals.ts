@@ -2,6 +2,7 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { getViewer, requireViewer } from "./lib";
+import { can } from "./permissions";
 import { notify } from "./notifications";
 import type { approvalStep } from "./schema";
 
@@ -122,6 +123,8 @@ type InboxItem = {
   items: { date: string; category: string; description: string; amount: number }[];
   /** Proof uploaded with the request (receipts). URLs are only returned to people who can see the request. */
   attachments: { name: string; url: string | null; isImage: boolean; isPdf: boolean }[];
+  /** The viewer can approve and pay this in one go (expense claims, for whoever pays). */
+  canPay: boolean;
 };
 
 async function leaveItem(ctx: QueryCtx, r: Doc<"leaveRequests">, viewerId: Id<"employees">): Promise<InboxItem> {
@@ -142,10 +145,11 @@ async function leaveItem(ctx: QueryCtx, r: Doc<"leaveRequests">, viewerId: Id<"e
     reason: r.reason,
     items: [],
     attachments: [],
+    canPay: false,
   };
 }
 
-async function expenseItem(ctx: QueryCtx, c: Doc<"expenseClaims">, viewerId: Id<"employees">): Promise<InboxItem> {
+async function expenseItem(ctx: QueryCtx, c: Doc<"expenseClaims">, viewerId: Id<"employees">, canPay = false): Promise<InboxItem> {
   const who = await ctx.db.get(c.employeeId);
   const step = c.steps.find((s) => s.status === "pending");
   return {
@@ -162,6 +166,7 @@ async function expenseItem(ctx: QueryCtx, c: Doc<"expenseClaims">, viewerId: Id<
     createdAt: c.createdAt,
     reason: "",
     items: c.items,
+    canPay: canPay && c.status === "pending",
     attachments: await Promise.all(
       c.receipts.map(async (r) => {
         const meta = await ctx.db.system.get(r.storageId);
@@ -194,7 +199,7 @@ export const inbox = query({
 
     const items = [
       ...(await Promise.all(leave.map((r) => leaveItem(ctx, r, viewer._id)))),
-      ...(await Promise.all(expenses.map((c) => expenseItem(ctx, c, viewer._id)))),
+      ...(await Promise.all(expenses.map((c) => expenseItem(ctx, c, viewer._id, can(viewer.accessRole, "finance.view"))))),
     ].sort((a, b) => a.createdAt - b.createdAt);
 
     // Recently decided by the viewer (small company: a scan of recent rows is fine).
@@ -271,34 +276,53 @@ export const decide = mutation({
       });
     } else {
       const claimId = ctx.db.normalizeId("expenseClaims", id);
-      const c = claimId && (await ctx.db.get(claimId));
-      if (!c || c.status !== "pending") throw new ConvexError("This claim has already been decided or withdrawn.");
-      const next = decideChain(c.steps, viewer, decision, cleanNote);
-      await ctx.db.patch(c._id, { ...next, decidedAt: next.status === "pending" ? undefined : Date.now() });
-      await afterDecision(ctx, {
-        requesterId: c.employeeId,
-        status: next.status,
-        currentApproverId: next.currentApproverId,
-        viewer,
-        what: `expense claim "${c.title}"`,
-        href: "/dashboard/expenses",
-        approvalsHref: "/dashboard/approvals",
-        note: cleanNote,
-      });
-      if (next.status === "approved") {
-        const ceo = await findCeo(ctx);
-        if (ceo && ceo._id !== viewer._id) {
-          await notify(ctx, ceo._id, {
-            title: "Expense claim ready to pay",
-            body: `"${c.title}" was approved and is waiting for payment.`,
-            href: "/dashboard/expenses?tab=all",
-            tone: "warning",
-          });
-        }
-      }
+      if (!claimId) throw new ConvexError("This claim has already been decided or withdrawn.");
+      await decideExpense(ctx, viewer, claimId, decision, cleanNote);
     }
   },
 });
+
+/**
+ * Approves or declines an expense claim's current step. With `payingNow` (Approve & pay),
+ * the "approved" and "ready to pay" notices are skipped: the payment notice follows at once.
+ */
+export async function decideExpense(
+  ctx: MutationCtx,
+  viewer: Doc<"employees">,
+  claimId: Id<"expenseClaims">,
+  decision: "approve" | "decline",
+  note: string | undefined,
+  { payingNow = false }: { payingNow?: boolean } = {},
+) {
+  const c = await ctx.db.get(claimId);
+  if (!c || c.status !== "pending") throw new ConvexError("This claim has already been decided or withdrawn.");
+  const next = decideChain(c.steps, viewer, decision, note);
+  if (payingNow && next.status !== "approved") throw new ConvexError("This claim still needs another approval before it can be paid.");
+  await ctx.db.patch(c._id, { ...next, decidedAt: next.status === "pending" ? undefined : Date.now() });
+  if (payingNow) return c;
+  await afterDecision(ctx, {
+    requesterId: c.employeeId,
+    status: next.status,
+    currentApproverId: next.currentApproverId,
+    viewer,
+    what: `expense claim "${c.title}"`,
+    href: "/dashboard/expenses",
+    approvalsHref: "/dashboard/approvals",
+    note,
+  });
+  if (next.status === "approved") {
+    const ceo = await findCeo(ctx);
+    if (ceo && ceo._id !== viewer._id) {
+      await notify(ctx, ceo._id, {
+        title: "Expense claim ready to pay",
+        body: `"${c.title}" was approved and is waiting for payment.`,
+        href: "/dashboard/expenses?tab=all",
+        tone: "warning",
+      });
+    }
+  }
+  return c;
+}
 
 async function afterDecision(
   ctx: MutationCtx,

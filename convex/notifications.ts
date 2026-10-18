@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import { mutation, query, type MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { getViewer } from "./lib";
@@ -14,19 +15,20 @@ export async function notify(
   await ctx.db.insert("notifications", { employeeId, tone: "info", ...n, createdAt: Date.now() });
 }
 
-/** The viewer's latest notifications, newest first. */
-export const mine = query({
-  args: {},
-  handler: async (ctx) => {
+/** The viewer's notifications, newest first, a page at a time ("Load more"). */
+export const list = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
     const viewer = await getViewer(ctx);
-    if (!viewer) return { items: [], unread: 0 };
-    const rows = await ctx.db
+    if (!viewer) return { page: [], isDone: true, continueCursor: "" };
+    const result = await ctx.db
       .query("notifications")
       .withIndex("by_employee", (q) => q.eq("employeeId", viewer._id))
       .order("desc")
-      .take(30);
+      .paginate(paginationOpts);
     return {
-      items: rows.map((n) => ({
+      ...result,
+      page: result.page.map((n) => ({
         id: n._id,
         title: n.title,
         body: n.body,
@@ -35,8 +37,22 @@ export const mine = query({
         read: Boolean(n.readAt),
         createdAt: n.createdAt,
       })),
-      unread: rows.filter((n) => !n.readAt).length,
     };
+  },
+});
+
+/** How many of the viewer's notifications are unread (the bell badge). */
+export const unreadCount = query({
+  args: {},
+  handler: async (ctx) => {
+    const viewer = await getViewer(ctx);
+    if (!viewer) return 0;
+    const unread = await ctx.db
+      .query("notifications")
+      .withIndex("by_employee", (q) => q.eq("employeeId", viewer._id))
+      .filter((q) => q.eq(q.field("readAt"), undefined))
+      .collect();
+    return unread.length;
   },
 });
 

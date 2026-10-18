@@ -151,6 +151,7 @@ export default defineSchema({
     dueDate: v.optional(v.string()),
     leadId: v.optional(v.id("employees")),
     dealId: v.optional(v.id("deals")),
+    driveFolderId: v.optional(v.string()), // this project's folder in the company Google Drive
     taskCounter: v.number(),
     createdBy: v.id("employees"),
     createdAt: v.number(),
@@ -200,6 +201,12 @@ export default defineSchema({
     url: v.optional(v.string()),
     size: v.optional(v.number()),
     contentType: v.optional(v.string()),
+    // A Google Doc/Sheet/Slides created from the app in the company Drive (`url` is its link).
+    googleFileId: v.optional(v.string()),
+    googleType: v.optional(v.union(v.literal("document"), v.literal("spreadsheet"), v.literal("presentation"))),
+    // Uploaded files are also copied to the project's Drive folder.
+    driveUrl: v.optional(v.string()),
+    driveStatus: v.optional(v.union(v.literal("pending"), v.literal("synced"), v.literal("failed"))),
     uploadedBy: v.id("employees"),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
@@ -274,6 +281,68 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_name", ["name"]),
+
+  // Emails sent to a contact from the app (through Resend), with delivery status.
+  contactEmails: defineTable({
+    contactId: v.id("contacts"),
+    to: v.string(),
+    subject: v.string(),
+    body: v.string(), // plain text as written
+    sentBy: v.id("employees"),
+    status: v.union(v.literal("sending"), v.literal("sent"), v.literal("failed")),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  }).index("by_contact", ["contactId"]),
+
+  // The company Google Workspace account that meetings and Drive files are created under.
+  // Only ever read server-side: the tokens never leave Convex.
+  googleConnection: defineTable({
+    email: v.string(),
+    refreshToken: v.string(),
+    accessToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    scopes: v.string(),
+    rootFolderId: v.optional(v.string()), // "OA Digital Command Center" folder in Drive
+    connectedBy: v.id("employees"),
+    connectedAt: v.number(),
+  }),
+
+  // One-time `state` values for the Google sign-in round trip.
+  googleOAuthStates: defineTable({
+    state: v.string(),
+    employeeId: v.id("employees"),
+    returnTo: v.string(), // origin to send the browser back to
+    expiresAt: v.number(),
+  }).index("by_state", ["state"]),
+
+  // Google Calendar events with a Meet link, scheduled from the app.
+  meetings: defineTable({
+    title: v.string(),
+    description: v.string(),
+    startAt: v.number(),
+    endAt: v.number(),
+    attendees: v.array(
+      v.object({
+        email: v.string(),
+        name: v.optional(v.string()),
+        employeeId: v.optional(v.id("employees")),
+        contactId: v.optional(v.id("contacts")),
+      }),
+    ),
+    projectId: v.optional(v.id("projects")),
+    contactId: v.optional(v.id("contacts")),
+    googleEventId: v.string(),
+    meetLink: v.optional(v.string()),
+    calendarLink: v.optional(v.string()),
+    status: v.union(v.literal("scheduled"), v.literal("cancelled")),
+    createdBy: v.id("employees"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_start", ["startAt"])
+    .index("by_project", ["projectId"])
+    .index("by_contact", ["contactId"]),
 
   // DEPRECATED: replaced by `employees`. Kept until production has migrated.
   teamMembers: defineTable({
