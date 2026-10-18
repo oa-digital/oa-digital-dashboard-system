@@ -17,7 +17,7 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "oa-digital-dashboard-system"
+      "service": "oa-digital-dashboard-system-dev"
     }
   ],
   "observability": {
